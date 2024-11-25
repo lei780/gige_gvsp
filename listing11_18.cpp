@@ -217,9 +217,9 @@ public:
 
   void send_complete (const sys::error_code& ec, size_t sz) 
   {
-#if BOOST_LOG_DYN_LINK == 1
-      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." ;
-#endif
+//#if BOOST_LOG_DYN_LINK == 1
+//      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." ;
+//#endif
   }
 
   void frame_udp_send (char *pdata, unsigned int length) 
@@ -246,12 +246,15 @@ public:
 
       std::cout << "Received: [" << buffer << "] " << remote_peer << '\n';
 
+      waitForReceive() ;
       //socket.async_send_to(
       //    asio::buffer(msg, strlen(msg)),
       //    remote_peer,
       //    boost::bind(&UDPAsyncServer::send_complete, this,
       //          boost::asio::placeholders::error,
       //          boost::asio::placeholders::bytes_transferred) );
+
+      //startDevice();
   }
 
 
@@ -548,6 +551,7 @@ public:
     ArvGvspPacket *packet;
 
     char frame_data[128*1024];
+    int stream_count = 0;
 
     flength = 128*1024;
     //std::vector<ArvGvspPacket *> packet_buffers;
@@ -560,6 +564,16 @@ public:
 
     while(loop)
     {
+        if(video_stream_mode == 1){
+            stream_count = 1; 
+        }
+        else if(video_stream_mode == 2){
+            stream_count = -1; 
+        }
+        else if(video_stream_mode == 0){
+            stream_count = 0; 
+        }
+
         //timestamp = 0;
         if(frame_id % 10 == 0){
             BOOST_LOG_TRIVIAL(info) << "frame length[" << flength << "]";
@@ -602,7 +616,14 @@ public:
               leader->infos.x_padding = htonl (0);
               leader->infos.y_padding = htonl (0);
 
-              frame_udp_send ((char *)packet, buffer_size); 
+              if(stream_count > 0){
+                  //std::cout << "frame_udp_send count, stream_count=" << stream_count << std::endl;
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+              else if(stream_count < 0){
+                  //std::cout << "frame_udp_send continue" << std::endl;
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
           }
           else{
               std::cout << "packet is NULL" << std::endl;
@@ -617,7 +638,15 @@ public:
                   //memcpy (gvsp_packet_get_data (packet), data, size);
                   //std::cout << "buffer_size: " << buffer_size << std::endl;
                   memcpy (gvsp_packet_get_data (packet), (char *)(packet_source+offset), 1480);
-                  frame_udp_send ((char *)packet, buffer_size); 
+
+                  //frame_udp_send ((char *)packet, buffer_size); 
+                  if(stream_count > 0){
+                      frame_udp_send ((char *)packet, buffer_size);
+                  }
+                  else if(stream_count < 0){
+                      frame_udp_send ((char *)packet, buffer_size);
+                  }
+
               }
               else{
                   std::cout << "payload packet is NULL " << std::endl;
@@ -634,7 +663,13 @@ public:
               if (packet != NULL) {
                   memcpy (gvsp_packet_get_data (packet),  packet_source+(offset), remain);
                   
-                  frame_udp_send ((char *)packet, buffer_size); 
+                  //frame_udp_send ((char *)packet, buffer_size); 
+                  if(stream_count > 0){
+                      frame_udp_send ((char *)packet, buffer_size); 
+                  }
+                  else if(stream_count < 0){
+                      frame_udp_send ((char *)packet, buffer_size); 
+                  }
               }
           }
 
@@ -649,7 +684,19 @@ public:
               trailer->payload_type = htonl (ARV_BUFFER_PAYLOAD_TYPE_IMAGE);
               trailer->data0 = 0;
 
-              frame_udp_send ((char *)packet, buffer_size); 
+              //frame_udp_send ((char *)packet, buffer_size); 
+              if(stream_count > 0){
+                  stream_count--;
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+              else if(stream_count < 0){
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+
+              //std::cout << "Send TRAILER (stream_count: " << stream_count << ")" << std::endl;
+              if(stream_count == 0){
+                  video_stream_mode = 0;
+              }
           }
 #endif
           if(frame_id % 10 == 0){
@@ -719,6 +766,8 @@ public:
       gSignalStatus = signal;
       socket.cancel();
   }
+
+  int video_stream_mode ;
 
 private:
   int m_video_fd = -1;
@@ -908,6 +957,7 @@ public:
   void waitForReceive() 
   {
       //int ret = 0;
+      //std::cout<<"Listening at : " << socket.local_endpoint() << std::endl;
 #if 0
       socket.async_receive_from( 
            asio::buffer(buffer, MAXBUF), 
@@ -1021,13 +1071,20 @@ public:
             BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<< "Read register address = 0x" << std::hex << register_address ;
             BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<< "Read register value = " << std::hex << register_value ;
 
+#if 1
             if(register_value == 1){
-                m_stream_server->startDevice();
+                m_stream_server->video_stream_mode = 1;
+                //m_stream_server->startDevice();
+            }
+            else if(register_value == 2){
+                m_stream_server->video_stream_mode = 2;
+                //m_stream_server->startDevice();
             }
             else if(register_value == 0){
-                m_stream_server->stopDevice();
+                m_stream_server->video_stream_mode = 0;
+                //m_stream_server->stopDevice();
             }
-
+#endif
             break;
 
        default:
@@ -1121,7 +1178,8 @@ int main()
   std::function<void()> func1 = std::bind(&command_proc, &command_service);
   std::thread my_thread1(func1);
 
-  //server->startDevice();
+  server->video_stream_mode = 0;
+  server->startDevice();
 
   std::cout << "service run.. " << '\n';
 

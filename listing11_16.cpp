@@ -365,14 +365,20 @@ public:
          : socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
 
         std::cout << "ipaddress: "<< host << ", port: " << port << std::endl;
+        //service = io_service;
 
 		asio::ip::udp::resolver::query query(asio::ip::udp::v4(), host, port);
 		asio::ip::udp::resolver resolver(io_service);
-		asio::ip::udp::resolver::iterator iter = resolver.resolve(query);
+        auto iter = resolver.resolve(query);
+		//asio::ip::udp::resolver::iterator iter = resolver.resolve(query);
         endpoint = iter->endpoint();
         //asio::ip::udp::socket socket(service, asio::ip::udp::v4(), 55000);
+        //asio::ip::udp::socket socket(io_service, asio::ip::udp::v4());
+
+        last_packet_id = 0;
 
         waitForReceive();
+        //waitForReceive_1();
 
         const char *msg = "Hello from client";
 
@@ -382,7 +388,6 @@ public:
           boost::bind(&UDPAsyncClient::send_complete, this,
                 boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred) );
-
   }
 
   ~UDPAsyncClient()
@@ -484,13 +489,31 @@ public:
 
   void waitForReceive()
   {
-      socket.async_receive_from(
-           asio::buffer(buffer, MAXBUF),
-           endpoint,
-           boost::bind(&UDPAsyncClient::DataReceive, this,
-                boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred) );
+      char *pbuf = nullptr;
+      int flag = 0;
+
+      pbuf = new char[MAXBUF];
+      
+      if(pbuf != nullptr){
+          socket.async_receive_from(
+              asio::buffer(pbuf, MAXBUF),
+              endpoint,
+              boost::bind(&UDPAsyncClient::DataReceive, this, _1, _2, flag, pbuf) );
+      }
+      else{
+          flag = 1;
+      }
   }
+
+  //void waitForReceive_1()
+  //{
+  //    socket.async_receive_from(
+  //         asio::buffer(buffer_1, MAXBUF),
+  //         endpoint,
+  //         boost::bind(&UDPAsyncClient::DataReceive, this,
+  //              boost::asio::placeholders::error,
+  //              boost::asio::placeholders::bytes_transferred, 1) );
+  //}
 
   void send_complete (const sys::error_code& ec, size_t sz)
   {
@@ -499,9 +522,10 @@ public:
 #endif
   }
 
-  void DataReceive (const sys::error_code& ec, size_t sz)
+  //void DataReceive (const sys::error_code& ec, size_t sz, int num)
+  void DataReceive (const sys::error_code& ec, size_t sz, int num, char *ptr)
   {
-      ArvGvspPacket *gvsp_packet = (ArvGvspPacket *)buffer;
+      ArvGvspPacket *gvsp_packet;
 
       ArvGvspContentType content_type;
       ArvBufferPayloadType payload_type;
@@ -518,11 +542,27 @@ public:
           return;
       }
 
+      waitForReceive();
+
+      gvsp_packet = (ArvGvspPacket *)ptr;
+      //if(num == 0)
+      //   gvsp_packet = (ArvGvspPacket *)buffer;
+      //else
+      //    gvsp_packet = (ArvGvspPacket *)buffer_1;
+
       frame_id = arv_gvsp_packet_get_frame_id (gvsp_packet);
       packet_id = arv_gvsp_packet_get_packet_id (gvsp_packet);
 
-      //BOOST_LOG_TRIVIAL(info) << ": received size = " << packet_size << '\n';
+      //BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "_" << num << ": received size = " << packet_size << '\n';
       //std::cout << __FUNCTION__ << ": packet id = " << packet_id <<" frame id = " << frame_id << '\n';
+
+      if(packet_id - last_packet_id != 1){
+          std::cout << __FUNCTION__ << ": current packet id = " << packet_id <<" frame id = " << frame_id << '\n';
+          BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "_" << num << ": last packet id = " << last_packet_id << '\n';
+      }
+
+      last_packet_id = packet_id;
+      //BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "_" << num << ": last packet id = " << last_packet_id << '\n';
 
       extended_ids = arv_gvsp_packet_has_extended_ids (gvsp_packet);
       content_type = arv_gvsp_packet_get_content_type (gvsp_packet);
@@ -556,6 +596,7 @@ public:
           case ARV_GVSP_CONTENT_TYPE_TRAILER:
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_TRAILER " << std::endl;
               BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_TRAILER" << '\n';
+              last_packet_id = 0;
               //return arv_gvsp_packet_get_packet_id (packet) + 1;
               break;
 
@@ -568,35 +609,31 @@ public:
           case ARV_GVSP_CONTENT_TYPE_MULTIZONE:
               break;
      }
-     waitForReceive();
 
-#if 0
-      socket.async_send_to(
-          asio::buffer(msg, strlen(msg)),
-          remote_peer,
-          boost::bind(&UDPAsyncCMDServer::send_complete, this,
-                boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred) );
-#endif
-
+     delete[] ptr;
   }
 
   void signal_handler(int signal)
   {
       gSignalStatus = signal;
       socket.cancel();
+      socket.close();
   }
 
 private:
   asio::ip::udp::socket socket;
   asio::ip::udp::endpoint remote_peer;
   asio::ip::udp::endpoint endpoint;
+  //asio::io_service &service;
   char buffer[MAXBUF];
+  char buffer_1[MAXBUF];
 
   //boost::asio::io_service& service;
   boost::asio::ip::udp::endpoint endpoint_;
 
   volatile std::sig_atomic_t gSignalStatus;
+
+  boost::atomic <uint32_t> last_packet_id;
 };
 
 UDPAsyncClient *stream_client = nullptr;
@@ -740,7 +777,8 @@ int main(int argc, char *argv[])
     std::cerr << e.what() << '\n';
   }
 
-  stream_client->signal_handler(9);
+  //stream_client->signal_handler(9);
+  delete stream_client;
 
   my_thread.join();
 
