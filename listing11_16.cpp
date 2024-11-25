@@ -1,5 +1,4 @@
 
-
 #include <iostream>
 #include <thread>
 #include <queue>
@@ -16,7 +15,6 @@
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 
-
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
@@ -30,7 +28,85 @@
 namespace asio = boost::asio;
 namespace sys = boost::system;
 
-const size_t MAXBUF = 256;
+const size_t MAXBUF = 1536;
+
+
+#define ARV_GVSP_PACKET_EXTENDED_ID_MODE_MASK   0x80
+#define ARV_GVSP_PACKET_ID_MASK         0x00ffffff
+#define ARV_GVSP_PACKET_INFOS_CONTENT_TYPE_MASK 0x7f000000
+#define ARV_GVSP_PACKET_INFOS_CONTENT_TYPE_POS  24
+#define ARV_GVSP_PACKET_INFOS_N_PARTS_MASK      0x000000ff
+
+ /* GVSP headers or IP + UDP + GVSP extended headers */
+
+#define ARV_GVSP_PACKET_PROTOCOL_OVERHEAD(ext_ids)  ((ext_ids) ? \
+                                                                 sizeof (ArvGvspPacket) +  sizeof (ArvGvspExtendedHeader) : \
+                                                                 sizeof (ArvGvspPacket) +  sizeof (ArvGvspHeader))
+
+#define ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD(ext_ids)      ARV_GVSP_PACKET_PROTOCOL_OVERHEAD(ext_ids)
+
+#define ARV_GVSP_MULTIPART_PACKET_PROTOCOL_OVERHEAD(ext_ids)    ((ext_ids) ? \
+                                                                 20 + 8 + \
+                                                                 sizeof (ArvGvspPacket) + \
+                                                                 sizeof (ArvGvspExtendedHeader) + \
+                                                                 sizeof (ArvGvspMultipart) : \
+                                                                 20 + 8 + \
+                                                                 sizeof (ArvGvspPacket) + \
+                                                                 sizeof (ArvGvspHeader) + \
+                                                                 sizeof (ArvGvspMultipart))
+/**
+ * ArvGvspPacketType:
+ * @ARV_GVSP_PACKET_TYPE_OK: valid packet
+ * @ARV_GVSP_PACKET_TYPE_RESEND: resent packet (BlackFly PointGrey camera support)
+ * @ARV_GVSP_PACKET_TYPE_PACKET_UNAVAILABLE: error packet, indicating invalid resend request
+ */
+typedef enum {
+    ARV_GVSP_PACKET_TYPE_OK =     0x0000,
+    ARV_GVSP_PACKET_TYPE_RESEND = 0x0100,
+    ARV_GVSP_PACKET_TYPE_PACKET_UNAVAILABLE = 0x800c
+} ArvGvspPacketType;
+
+/**
+ * ArvGvspContentType:
+ * @ARV_GVSP_CONTENT_TYPE_LEADER: leader packet
+ * @ARV_GVSP_CONTENT_TYPE_TRAILER: trailer packet
+ * @ARV_GVSP_CONTENT_TYPE_PAYLOAD: data packet
+ * @ARV_GVSP_CONTENT_TYPE_ALL_IN: leader + data + trailer packet
+ * @ARV_GVSP_CONTENT_TYPE_H264: h264 data packet
+ * @ARV_GVSP_CONTENT_TYPE_MULTIZONE: multizone data packet
+ * @ARV_GVSP_CONTENT_TYPE_MULTIPART: multipart data packet
+ * @ARV_GVSP_CONTENT_TYPE_GENDC: GenDC data packet
+ */
+
+typedef enum {
+    ARV_GVSP_CONTENT_TYPE_LEADER =      0x01,
+    ARV_GVSP_CONTENT_TYPE_TRAILER =     0x02,
+    ARV_GVSP_CONTENT_TYPE_PAYLOAD =     0x03,
+    ARV_GVSP_CONTENT_TYPE_ALL_IN =      0x04,
+    ARV_GVSP_CONTENT_TYPE_H264 =        0x05,
+    ARV_GVSP_CONTENT_TYPE_MULTIZONE =   0x06,
+    ARV_GVSP_CONTENT_TYPE_MULTIPART =   0x07,
+    ARV_GVSP_CONTENT_TYPE_GENDC =       0x08
+} ArvGvspContentType;
+
+
+typedef enum { 
+    ARV_BUFFER_PAYLOAD_TYPE_UNKNOWN =               -1,
+    ARV_BUFFER_PAYLOAD_TYPE_NO_DATA =       0x0000,
+    ARV_BUFFER_PAYLOAD_TYPE_IMAGE =         0x0001,
+    ARV_BUFFER_PAYLOAD_TYPE_RAWDATA =       0x0002,
+    ARV_BUFFER_PAYLOAD_TYPE_FILE =          0x0003,
+    ARV_BUFFER_PAYLOAD_TYPE_CHUNK_DATA =    0x0004,
+    ARV_BUFFER_PAYLOAD_TYPE_EXTENDED_CHUNK_DATA = 0x0005, /* Deprecated */
+    ARV_BUFFER_PAYLOAD_TYPE_JPEG =          0x0006,
+    ARV_BUFFER_PAYLOAD_TYPE_JPEG2000 =      0x0007,
+    ARV_BUFFER_PAYLOAD_TYPE_H264 =          0x0008,
+    ARV_BUFFER_PAYLOAD_TYPE_MULTIZONE_IMAGE =   0x0009,
+    ARV_BUFFER_PAYLOAD_TYPE_MULTIPART =             0x000a,
+    ARV_BUFFER_PAYLOAD_TYPE_GENDC_CONTAINER =       0x000b,
+    ARV_BUFFER_PAYLOAD_TYPE_GENDC_COMPONENT_DATA =  0x000c
+} ArvBufferPayloadType;
+
 
 /**
  * ArvGvcpHeader:
@@ -64,6 +140,70 @@ typedef struct {
     unsigned char data[];
 } __attribute__((packed)) ArvGvcpPacket;
 
+
+typedef struct {
+    uint16_t packet_type;
+    uint8_t header[];
+} __attribute__((packed)) ArvGvspPacket;
+
+
+typedef struct {
+    uint16_t frame_id;
+    uint32_t packet_infos;
+    uint8_t data[];
+} __attribute__((packed)) ArvGvspHeader;
+
+typedef struct {
+    uint16_t flags;
+    uint32_t packet_infos;
+    uint64_t frame_id;
+    uint32_t packet_id;
+    uint8_t data[];
+} __attribute__((packed)) ArvGvspExtendedHeader;
+
+typedef struct {
+    uint32_t payload_type;
+    uint32_t data0;
+} __attribute__((packed))  ArvGvspTrailer;
+
+typedef struct {
+    uint32_t pixel_format;
+    uint32_t width;
+    uint32_t height;
+    uint32_t x_offset;
+    uint32_t y_offset;
+    uint16_t x_padding;
+    uint16_t y_padding;
+} __attribute__((packed)) ArvGvspImageInfos;
+
+
+/**
+ * ArvGvspLeader:
+ * @flags: generic flags
+ * @payload_type: ID of the payload type
+ */
+
+typedef struct {
+    uint16_t flags;
+    uint16_t payload_type;
+    uint32_t timestamp_high;
+    uint32_t timestamp_low;
+} __attribute__((packed)) ArvGvspLeader;
+
+typedef struct {
+    uint16_t flags;
+    uint16_t payload_type;
+    uint32_t timestamp_high;
+    uint32_t timestamp_low;
+    ArvGvspImageInfos infos;
+}  __attribute__((packed)) ArvGvspImageLeader;
+
+typedef struct {
+    uint8_t part_id;
+    uint8_t zone_info;
+    uint16_t offset_high;
+    uint32_t offset_low;
+} __attribute__((packed)) ArvGvspMultipart;
 
 
 size_t arv_gvcp_packet_get_read_register_ack_size (void)
@@ -121,7 +261,6 @@ arv_gvcp_packet_new_read_register_cmd (uint32_t address,
     return packet;
 }
 
-
 ArvGvcpPacket *
 arv_gvcp_packet_new_read_memory_cmd (uint32_t address, uint32_t size, uint16_t packet_id, size_t *packet_size)
 {
@@ -132,7 +271,6 @@ arv_gvcp_packet_new_read_memory_cmd (uint32_t address, uint32_t size, uint16_t p
     //g_return_val_if_fail (packet_size != NULL, NULL);
 
     n_size = htonl (((size + sizeof (uint32_t) - 1) / sizeof (uint32_t)) * sizeof (uint32_t));
-
     *packet_size = sizeof (ArvGvcpHeader) + 2 * sizeof (uint32_t);
 
     packet = (ArvGvcpPacket *)malloc (*packet_size);
@@ -200,12 +338,10 @@ arv_gvcp_packet_new_write_register_cmd (uint32_t address,
     return packet;
 }
 
-
-
-class UDPAsyncCMDServer
+class UDPAsyncClient
 {
-
 public:
+#if 0
   UDPAsyncCMDServer(asio::io_service& service, unsigned short port)
      : socket(service,
           asio::ip::udp::endpoint(asio::ip::udp::v4(), port))
@@ -219,13 +355,139 @@ public:
 #endif
       socket.cancel();
   }
+#endif
+
+  UDPAsyncClient(
+		boost::asio::io_service& io_service, 
+		const std::string& host, 
+		const std::string& port ) 
+         //: service(io_service), socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
+         : socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
+
+        std::cout << "ipaddress: "<< host << ", port: " << port << std::endl;
+
+		asio::ip::udp::resolver::query query(asio::ip::udp::v4(), host, port);
+		asio::ip::udp::resolver resolver(io_service);
+		asio::ip::udp::resolver::iterator iter = resolver.resolve(query);
+        endpoint = iter->endpoint();
+        //asio::ip::udp::socket socket(service, asio::ip::udp::v4(), 55000);
+
+        waitForReceive();
+
+        const char *msg = "Hello from client";
+
+        socket.async_send_to(
+          asio::buffer(msg, strlen(msg)),
+          endpoint,
+          boost::bind(&UDPAsyncClient::send_complete, this,
+                boost::asio::placeholders::error,
+                boost::asio::placeholders::bytes_transferred) );
+
+  }
+
+  ~UDPAsyncClient()
+  {
+    socket.close();
+  }
+
+  ArvGvspPacketType arv_gvsp_packet_get_packet_type (const ArvGvspPacket *packet)
+  {  
+    return (ArvGvspPacketType) ntohs (packet->packet_type);
+  }  
+   
+  bool arv_gvsp_packet_type_is_error (const ArvGvspPacketType packet_type)
+  {
+    return (packet_type & 0x8000) != 0;
+  }   
+    
+  bool arv_gvsp_packet_has_extended_ids (const ArvGvspPacket *packet)
+  {   
+    return (packet->header[2] & ARV_GVSP_PACKET_EXTENDED_ID_MODE_MASK) != 0;
+  }   
+
+  ArvGvspContentType arv_gvsp_packet_get_content_type (const ArvGvspPacket *packet)
+  {  
+    if (arv_gvsp_packet_has_extended_ids (packet)) {
+        ArvGvspExtendedHeader *header = (ArvGvspExtendedHeader *) &packet->header;
+
+        return (ArvGvspContentType) ((ntohl (header->packet_infos) & ARV_GVSP_PACKET_INFOS_CONTENT_TYPE_MASK) >>
+                         ARV_GVSP_PACKET_INFOS_CONTENT_TYPE_POS);
+    } else {
+        ArvGvspHeader *header = (ArvGvspHeader *) &packet->header;
+
+        return (ArvGvspContentType) ((ntohl (header->packet_infos) & ARV_GVSP_PACKET_INFOS_CONTENT_TYPE_MASK) >>
+                         ARV_GVSP_PACKET_INFOS_CONTENT_TYPE_POS);
+    }
+  }
+
+  uint32_t arv_gvsp_packet_get_packet_id (const ArvGvspPacket *packet)
+  {
+    if (arv_gvsp_packet_has_extended_ids (packet)) {
+        ArvGvspExtendedHeader *header = (ArvGvspExtendedHeader *) &packet->header;
+
+        return ntohl (header->packet_id);
+    } else {
+        ArvGvspHeader *header = (ArvGvspHeader *) &packet->header;
+
+        return ntohl (header->packet_infos) & ARV_GVSP_PACKET_ID_MASK;
+    }
+  }
+
+  uint64_t arv_gvsp_packet_get_frame_id (const ArvGvspPacket *packet)
+  {
+    if (arv_gvsp_packet_has_extended_ids (packet)) {
+        ArvGvspExtendedHeader *header = (ArvGvspExtendedHeader *) &packet->header;
+
+        //return GUINT64_FROM_BE(header->frame_id);
+        return header->frame_id;
+    } else {
+        ArvGvspHeader *header = (ArvGvspHeader *) &packet->header;
+
+        return ntohs (header->frame_id);
+    }
+  }
+
+  void *
+  arv_gvsp_packet_get_data (const ArvGvspPacket *packet)
+  {
+    if (arv_gvsp_packet_has_extended_ids (packet)) {
+        ArvGvspExtendedHeader *header = (ArvGvspExtendedHeader *) &packet->header;
+
+        return &header->data;
+    } else {
+        ArvGvspHeader *header = (ArvGvspHeader *) &packet->header;
+
+        return &header->data;
+    }
+  }
+
+  ArvBufferPayloadType
+  arv_gvsp_leader_packet_get_buffer_payload_type (const ArvGvspPacket *packet, bool *has_chunks)
+  {   
+    if ( arv_gvsp_packet_get_content_type (packet) == ARV_GVSP_CONTENT_TYPE_LEADER ) {
+        ArvGvspLeader *leader;
+        uint16_t payload_type;
+
+        leader = (ArvGvspLeader *) arv_gvsp_packet_get_data (packet);
+        payload_type = ntohs (leader->payload_type);
+        
+        if (has_chunks != NULL)
+            *has_chunks = ( (payload_type & 0x4000) != 0 ||
+                            (payload_type == ARV_BUFFER_PAYLOAD_TYPE_CHUNK_DATA) ||
+                            (payload_type == ARV_BUFFER_PAYLOAD_TYPE_EXTENDED_CHUNK_DATA));
+
+        return (ArvBufferPayloadType) (payload_type & 0x3fff);
+    }
+
+    return ARV_BUFFER_PAYLOAD_TYPE_UNKNOWN;
+  }
 
   void waitForReceive()
   {
       socket.async_receive_from(
            asio::buffer(buffer, MAXBUF),
-           remote_peer,
-           boost::bind(&UDPAsyncCMDServer::DataReceive, this,
+           endpoint,
+           boost::bind(&UDPAsyncClient::DataReceive, this,
                 boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred) );
   }
@@ -239,14 +501,75 @@ public:
 
   void DataReceive (const sys::error_code& ec, size_t sz)
   {
-      //ArvGvcpPacket *gvcp_packet = (ArvGvcpPacket *)buffer;
+      ArvGvspPacket *gvsp_packet = (ArvGvspPacket *)buffer;
+
+      ArvGvspContentType content_type;
+      ArvBufferPayloadType payload_type;
+
+      uint32_t packet_id;
+      uint64_t frame_id; 
+      bool extended_ids;
+      size_t packet_size = sz;
+      uint32_t block_size;
+
       if( ec == boost::asio::error::operation_aborted )
       {
           std::cout << __FUNCTION__ << ": Aborted "  << '\n';
           return;
       }
 
-      waitForReceive();
+      frame_id = arv_gvsp_packet_get_frame_id (gvsp_packet);
+      packet_id = arv_gvsp_packet_get_packet_id (gvsp_packet);
+
+      //BOOST_LOG_TRIVIAL(info) << ": received size = " << packet_size << '\n';
+      //std::cout << __FUNCTION__ << ": packet id = " << packet_id <<" frame id = " << frame_id << '\n';
+
+      extended_ids = arv_gvsp_packet_has_extended_ids (gvsp_packet);
+      content_type = arv_gvsp_packet_get_content_type (gvsp_packet);
+
+      switch (content_type) {
+
+          case ARV_GVSP_CONTENT_TYPE_LEADER:
+              payload_type = arv_gvsp_leader_packet_get_buffer_payload_type(gvsp_packet, NULL);
+              if ( payload_type == ARV_BUFFER_PAYLOAD_TYPE_IMAGE ||
+                   payload_type == ARV_BUFFER_PAYLOAD_TYPE_EXTENDED_CHUNK_DATA ||
+                   payload_type == ARV_BUFFER_PAYLOAD_TYPE_CHUNK_DATA ) {
+
+                  block_size = packet_size - ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD (extended_ids);
+              }
+              //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_LEADER (block_size=" << block_size << ") " << std::endl;
+              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_LEADER" << '\n';
+              break;
+
+          case ARV_GVSP_CONTENT_TYPE_PAYLOAD:
+              block_size = packet_size - ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD (extended_ids);
+              //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_PAYLOAD (block_size=" << block_size << ") " << std::endl;
+              //return (allocated_size + block_size - 1) / block_size + (2 /* leader + trailer */);
+              break;
+
+          case ARV_GVSP_CONTENT_TYPE_MULTIPART:
+              block_size = packet_size - ARV_GVSP_MULTIPART_PACKET_PROTOCOL_OVERHEAD (extended_ids);
+              //return (allocated_size + block_size - 1) / block_size +
+              //                 (2 /* leader + trailer */) + (255 /* n_parts_max) */);
+              break;
+
+          case ARV_GVSP_CONTENT_TYPE_TRAILER:
+              //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_TRAILER " << std::endl;
+              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_TRAILER" << '\n';
+              //return arv_gvsp_packet_get_packet_id (packet) + 1;
+              break;
+
+          case ARV_GVSP_CONTENT_TYPE_ALL_IN:
+              //return 1;
+              break;
+
+          case ARV_GVSP_CONTENT_TYPE_H264:
+          case ARV_GVSP_CONTENT_TYPE_GENDC:
+          case ARV_GVSP_CONTENT_TYPE_MULTIZONE:
+              break;
+     }
+     waitForReceive();
+
 #if 0
       socket.async_send_to(
           asio::buffer(msg, strlen(msg)),
@@ -255,6 +578,7 @@ public:
                 boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred) );
 #endif
+
   }
 
   void signal_handler(int signal)
@@ -266,11 +590,22 @@ public:
 private:
   asio::ip::udp::socket socket;
   asio::ip::udp::endpoint remote_peer;
+  asio::ip::udp::endpoint endpoint;
   char buffer[MAXBUF];
+
+  //boost::asio::io_service& service;
+  boost::asio::ip::udp::endpoint endpoint_;
 
   volatile std::sig_atomic_t gSignalStatus;
 };
 
+UDPAsyncClient *stream_client = nullptr;
+
+void stream_proc(void *pdat)
+{
+    asio::io_service *srv = (asio::io_service *)pdat;
+    srv->run();
+}
 
 int main(int argc, char *argv[]) 
 {
@@ -280,6 +615,7 @@ int main(int argc, char *argv[])
   ArvGvcpPacket *cmd_packet;
 
   std::string gvcp_port = std::to_string(ARV_GVCP_PORT);
+  std::string gvsp_port = std::to_string(55000);
 
   if (argc < 2) {
     //std::cerr << "Usage: " << argv[0] << " host port\n";
@@ -287,7 +623,14 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  asio::io_service stream_service;
+  stream_client = new UDPAsyncClient(stream_service, argv[1], gvsp_port);
+
+  std::function<void()> func = std::bind(&stream_proc, &stream_service);
+  std::thread my_thread(func);
+
   asio::io_service service;
+
   try {
 
     //asio::ip::udp::resolver::query query(asio::ip::udp::v4(), argv[1], argv[2]);
@@ -296,8 +639,7 @@ int main(int argc, char *argv[])
 
     auto iter = resolver.resolve(query);
     asio::ip::udp::endpoint endpoint = iter->endpoint();
-    asio::ip::udp::socket socket(service, 
-                                 asio::ip::udp::v4());
+    asio::ip::udp::socket socket(service, asio::ip::udp::v4());
 
 #if 0
     const char *msg = "Hello from client";
@@ -392,13 +734,15 @@ int main(int argc, char *argv[])
             std::cout << "do not found " << std::endl;
         }
     }
-
     //boost::asio::write(s, boost::asio::buffer(request, request_length));
-
   } catch (std::exception& e) {
 
     std::cerr << e.what() << '\n';
-
   }
+
+  stream_client->signal_handler(9);
+
+  my_thread.join();
+
 }
 

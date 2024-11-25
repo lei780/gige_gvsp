@@ -11,7 +11,7 @@ BOOST_LDFLAG = -lboost_thread -lboost_iostreams -lboost_chrono -lboost_system -l
 LDFLAGS = -lpthread $(BOOST_LDFLAG) -lrt
 #CFLAGS = -Wall -O2 -std=c++14 -I/data/guest/guest3/boost_install/include
 #CFLAGS = -Wall -O2 -std=c++14 -I$(SDKTARGETSYSROOT)/include
-CFLAGS = -Wall -O0 -g -std=c++14 -DBOOST_LOG_DYN_LINK=1
+CFLAGS = -Wall -O0 -g -std=c++14 -DBOOST_LOG_DYN_LINK=1 -DBOOST_BIND_GLOBAL_PLACEHOLDERS
 
 #CFLAGS = -Wall -g -Os -DDEBUG
 #INC_DIR = $(shell pkg-config --cflags sdl2)

@@ -1,5 +1,4 @@
 
-
 #include <iostream>
 #include <thread>
 #include <queue>
@@ -12,6 +11,8 @@
 
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
+#include <boost/bind/bind.hpp>
+
 #include <boost/atomic.hpp>
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
@@ -30,6 +31,7 @@
 
 namespace asio = boost::asio;
 namespace sys = boost::system;
+using namespace boost::placeholders;
 
 const size_t MAXBUF = 256;
 
@@ -198,25 +200,33 @@ public:
 
   void waitForReceive() 
   {
+#if 0
       socket.async_receive_from( 
            asio::buffer(buffer, MAXBUF), 
            remote_peer,
            boost::bind(&UDPAsyncServer::DataReceive, this,
                 boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred) );
+#endif
+
+      socket.async_receive_from( 
+           asio::buffer(buffer, MAXBUF), 
+           remote_peer,
+           boost::bind(&UDPAsyncServer::DataReceive, this, _1, _2) );
   }
 
   void send_complete (const sys::error_code& ec, size_t sz) 
   {
-
 #if BOOST_LOG_DYN_LINK == 1
       BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." ;
 #endif
-
   }
 
   void frame_udp_send (char *pdata, unsigned int length) 
   {
+      //BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." ;
+      //std::cout << "Send to " << remote_peer << '\n';
+
       socket.async_send_to(
           asio::buffer(pdata, length),
           remote_peer,
@@ -344,6 +354,7 @@ public:
     return m_video_fd;
   }
 
+#if 0
   void videoframe_polling()
   {
     fd_set fds;
@@ -368,7 +379,6 @@ public:
     tv.tv_usec = 300000;
 
     loop = 1;
-
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Enter.. " ;
 
     while(loop)
@@ -422,18 +432,13 @@ public:
           packet_id = 0;
 #if 1
           /*  Leader packet   */ 
-          //packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_LEADER,
-          //                  frame_id, packet_id++, sizeof (ArvGvspImageLeader), NULL, &buffer_size);
-
           packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_LEADER,
                             frame_id, packet_id, sizeof (ArvGvspImageLeader), bufferof_packets[packet_id], &buffer_size);
           packet_id++;
-
           if (packet != NULL) {
               ArvGvspImageLeader *leader;
   
               leader = (ArvGvspImageLeader *)gvsp_packet_get_data (packet);
-  
               leader->flags = 0;
               leader->payload_type = htons (ARV_BUFFER_PAYLOAD_TYPE_IMAGE);
               //leader->timestamp_high = htonl (((uint64_t) timestamp >> 32));
@@ -451,8 +456,6 @@ public:
           }
 
           while(copy_count > 0) {
-              //packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
-              //               frame_id, packet_id++, 1460, NULL, &buffer_size);
               packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
                              frame_id, packet_id, 1460, bufferof_packets[packet_id], &buffer_size);
               packet_id++;
@@ -463,14 +466,11 @@ public:
                   //packet_buffers.push_back(packet);
                   //frame_udp_send ((char *)packet, buffer_size); 
               }
-
               copy_count--;
               offset += 1460;
           }
           
           if(remain != 0){
-              //packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
-              //               frame_id, packet_id++, remain, NULL, &buffer_size);
               packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
                              frame_id, packet_id, remain, bufferof_packets[packet_id], &buffer_size);
               packet_id++;
@@ -482,10 +482,8 @@ public:
           }
 
           /*  Trailer packet   */ 
-          //packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_TRAILER,
-          //                  frame_id, packet_id++, sizeof (ArvGvspTrailer), NULL, &buffer_size);
           packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_TRAILER,
-                            frame_id, packet_id++, sizeof (ArvGvspTrailer), bufferof_packets[packet_id], &buffer_size);
+                            frame_id, packet_id, sizeof (ArvGvspTrailer), bufferof_packets[packet_id], &buffer_size);
           packet_id++;
           if (packet != NULL) {
               ArvGvspTrailer *trailer;
@@ -505,18 +503,12 @@ public:
           //frames.push(packet_buffers); 
           frame_id++;
 
-          //spawn(socket.get_io_service(), boost::bind(frame_udp_send, this));
-          //spawn(socket.get_io_service(), boost::bind(frame_udp_send));
-          //socket.get_io_service().post( frame_udp_send );
-          //socket.get_io_service().post( std::bind(UDPAsyncServer::frame_udp_send, this) );
-
           buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
           buf.memory = V4L2_MEMORY_MMAP;
           if (-1 == ioctl(m_video_fd, VIDIOC_QBUF, &buf)) {
             fprintf(stderr, "VIDIOC_QBUF failure\n");
             //return 0;
           }
-
           //BOOST_LOG_TRIVIAL(info) << "Queue buffer" << buf.index << std::endl; 
         }
 
@@ -529,7 +521,6 @@ public:
 
      if(bufferof_packets.size() != 0) {
          std::vector<char *>::iterator iter;
-
          for(iter = bufferof_packets.begin(); iter != bufferof_packets.end(); iter++){
              //char *ptr = *iter;
              //delete[] ptr;
@@ -537,39 +528,188 @@ public:
          }
          BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
      }
+
+  }
+#endif
+
+  void videoframe_polling()
+  {
+    //struct timeval tv = {.tv_sec = 3, .tv_usec = 0};
+    //int ret;
+    unsigned int flength = 0;
+    unsigned int offset = 0;
+    unsigned int copy_count = 0;
+    unsigned int remain = 0;
+    unsigned int packet_id = 0;
+    unsigned int frame_id = 0;
+
+    //struct timeval timestamp;
+    size_t buffer_size;
+    ArvGvspPacket *packet;
+
+    char frame_data[128*1024];
+
+    flength = 128*1024;
+    //std::vector<ArvGvspPacket *> packet_buffers;
+
+    //tv.tv_sec = 0;
+    //tv.tv_usec = 300000;
+
+    loop = 1;
+    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Enter.. " ;
+
+    while(loop)
+    {
+        //timestamp = 0;
+        if(frame_id % 10 == 0){
+            BOOST_LOG_TRIVIAL(info) << "frame length[" << flength << "]";
+            //BOOST_LOG_TRIVIAL(info) << "frame timestamp[" << timestamp.tv_sec << ", " << timestamp.tv_usec << "]" ;
+        }
+
+        offset = 0;
+        copy_count = flength / 1480;
+        remain = flength % 1480;
+
+        if(bufferof_packets.size() == 0) {
+            for(unsigned int i = 0; i < copy_count+8; i++){
+                bufferof_packets.push_back(new char[1536]);
+            }
+            BOOST_LOG_TRIVIAL(info) << copy_count << " packet buffer allocated" << std::endl; 
+        }
+
+        char *packet_source = frame_data;
+        packet_id = 0;
+
+        buffer_size = 1536;
+#if 1
+          /*  Leader packet   */ 
+          packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_LEADER,
+                            frame_id, packet_id, sizeof (ArvGvspImageLeader), bufferof_packets[packet_id], &buffer_size);
+          packet_id++;
+          if (packet != NULL) {
+              ArvGvspImageLeader *leader;
+  
+              leader = (ArvGvspImageLeader *)gvsp_packet_get_data (packet);
+              leader->flags = 0;
+              leader->payload_type = htons (ARV_BUFFER_PAYLOAD_TYPE_IMAGE);
+              //leader->timestamp_high = htonl (((uint64_t) timestamp >> 32));
+              //leader->timestamp_low  = htonl ((uint64_t) timestamp & 0xffffffff);
+              leader->infos.pixel_format = htonl (0x020C0112);
+              leader->infos.width = htonl (IMAGE_WIDTH);
+              leader->infos.height = htonl (IMAGE_HEIGHT);
+              leader->infos.x_offset = htonl (0);
+              leader->infos.y_offset = htonl (0);
+              leader->infos.x_padding = htonl (0);
+              leader->infos.y_padding = htonl (0);
+
+              frame_udp_send ((char *)packet, buffer_size); 
+          }
+          else{
+              std::cout << "packet is NULL" << std::endl;
+          }
+
+          buffer_size = 1536;
+          while(copy_count > 0) {
+              packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
+                             frame_id, packet_id, 1480, bufferof_packets[packet_id], &buffer_size);
+              packet_id++;
+              if (packet != NULL){
+                  //memcpy (gvsp_packet_get_data (packet), data, size);
+                  //std::cout << "buffer_size: " << buffer_size << std::endl;
+                  memcpy (gvsp_packet_get_data (packet), (char *)(packet_source+offset), 1480);
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+              else{
+                  std::cout << "payload packet is NULL " << std::endl;
+              }
+
+              copy_count--;
+              offset += 1460;
+          }
+          
+          if(remain != 0) {
+              packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
+                             frame_id, packet_id, remain, bufferof_packets[packet_id], &buffer_size);
+              packet_id++;
+              if (packet != NULL) {
+                  memcpy (gvsp_packet_get_data (packet),  packet_source+(offset), remain);
+                  
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+          }
+
+          /*  Trailer packet   */ 
+          packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_TRAILER,
+                            frame_id, packet_id, sizeof (ArvGvspTrailer), bufferof_packets[packet_id], &buffer_size);
+          packet_id++;
+          if (packet != NULL) {
+              ArvGvspTrailer *trailer;
+  
+              trailer = (ArvGvspTrailer *)gvsp_packet_get_data (packet);
+              trailer->payload_type = htonl (ARV_BUFFER_PAYLOAD_TYPE_IMAGE);
+              trailer->data0 = 0;
+
+              frame_udp_send ((char *)packet, buffer_size); 
+          }
+#endif
+          if(frame_id % 10 == 0){
+              BOOST_LOG_TRIVIAL(info) << "packets of frame complete [" << flength << "]";
+          }
+
+          //frames.push(packet_buffers); 
+          frame_id++;
+
+        //loop--;
+        usleep(500*1000);
+     }
+
+     if(bufferof_packets.size() != 0) {
+         std::vector<char *>::iterator iter;
+         for(iter = bufferof_packets.begin(); iter != bufferof_packets.end(); iter++){
+             //char *ptr = *iter;
+             //delete[] ptr;
+             delete[] *iter;
+         }
+         bufferof_packets.clear();
+         BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
+     }
   }
 
   int startDevice()
   {
     int ret = -1;
-#if 1
-    BOOST_LOG_TRIVIAL(info) << "Stream ON ..." << std::endl; 
 
+#if 0
+    BOOST_LOG_TRIVIAL(info) << "Stream ON ..." << std::endl; 
     if (v4l2_streamon(m_video_fd) == -1) {
       BOOST_LOG_TRIVIAL(error) << "Error Stream ON ..." << std::endl; 
       return ret;
     }
 #endif
-    ret = 1;
 
+    ret = 1;
     std::function<void()> func = std::bind(&UDPAsyncServer::videoframe_polling, this);
     frame_proc = std::thread(func);
-    
+
     return ret;
   }
 
   int stopDevice()
   {
     int ret = -1;
-
+#if 0
     if (v4l2_streamoff(m_video_fd) == -1) {
       BOOST_LOG_TRIVIAL(error) << "Error Stream OFF ..." << std::endl; 
       return ret;
     }
+#endif
     ret = 1;
 
     loop = 0;
-    frame_proc.join();
+    if(frame_proc.joinable()){
+        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Join Wait ..." ;
+        frame_proc.join();
+    }
 
     return ret;
   }
@@ -768,12 +908,19 @@ public:
   void waitForReceive() 
   {
       //int ret = 0;
+#if 0
       socket.async_receive_from( 
            asio::buffer(buffer, MAXBUF), 
            remote_peer,
            boost::bind(&UDPAsyncCMDServer::DataReceive, this,
                 boost::asio::placeholders::error,
                 boost::asio::placeholders::bytes_transferred) );
+#else
+      socket.async_receive_from( 
+           asio::buffer(buffer, MAXBUF), 
+           remote_peer,
+           boost::bind(&UDPAsyncCMDServer::DataReceive, this, _1, _2) );
+#endif
 
       //socket.async_receive_from( 
       //     asio::buffer(buffer, MAXBUF), 
@@ -857,10 +1004,10 @@ public:
             BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<< "Read register command 0x" << std::hex << register_address ;
 
             success = gev_camera_read_memory (register_address, sizeof (register_value), &be_value);
-
             //          register_address, register_value);
             //ack_packet = arv_gvcp_packet_new_read_register_ack (register_value, packet_id,
             //                            &ack_packet_size);
+            ((void)success);
             break;
 
         case ARV_GVCP_COMMAND_WRITE_REGISTER_CMD:
@@ -876,6 +1023,9 @@ public:
 
             if(register_value == 1){
                 m_stream_server->startDevice();
+            }
+            else if(register_value == 0){
+                m_stream_server->stopDevice();
             }
 
             break;
@@ -959,7 +1109,7 @@ int main()
   command_server = new UDPAsyncCMDServer(command_service, ARV_GVCP_PORT);
   command_server->m_stream_server = server;
 
-  server->initDevice("/dev/video0");
+  //server->initDevice("/dev/video0");
 
   //std::signal(SIGINT, server.signal_handler);
   std::signal(SIGINT, signal_handler);
@@ -971,7 +1121,7 @@ int main()
   std::function<void()> func1 = std::bind(&command_proc, &command_service);
   std::thread my_thread1(func1);
 
-  server->startDevice();
+  //server->startDevice();
 
   std::cout << "service run.. " << '\n';
 
