@@ -172,6 +172,8 @@ public:
   {  
     init_done = false;
     waitForReceive(); 
+
+    m_transfer_packet_length = 1480;
   }
 
   ~UDPAsyncServer() 
@@ -362,7 +364,7 @@ public:
     return m_video_fd;
   }
 
-#if 0
+#if 1
   void videoframe_polling()
   {
     fd_set fds;
@@ -378,8 +380,10 @@ public:
     unsigned int frame_id = 0;
 
     struct timeval timestamp;
-    size_t buffer_size;
+    size_t buffer_size = 0;
     ArvGvspPacket *packet;
+
+    int stream_count = 0;
 
     //std::vector<ArvGvspPacket *> packet_buffers;
 
@@ -391,6 +395,16 @@ public:
 
     while(loop)
     {
+        if(video_stream_mode == 1){
+            stream_count = 1; 
+        }
+        else if(video_stream_mode == 2){
+            stream_count = -1; 
+        }
+        else if(video_stream_mode == 0){
+            stream_count = 0; 
+        }
+
         FD_ZERO(&fds);
         FD_SET(m_video_fd, &fds);
 
@@ -419,18 +433,18 @@ public:
           //flength = buf.bytesused;
           timestamp = buf.timestamp;
 
-          if(frame_id % 10 == 0){
-              BOOST_LOG_TRIVIAL(info) << "frame length[" << buf.bytesused << "]";
-              BOOST_LOG_TRIVIAL(info) << "frame timestamp[" << timestamp.tv_sec << ", " << timestamp.tv_usec << "]" ;
-          }
+          //if(frame_id % 10 == 0){
+          //    BOOST_LOG_TRIVIAL(info) << "frame length[" << buf.bytesused << "]";
+          //    BOOST_LOG_TRIVIAL(info) << "frame timestamp[" << timestamp.tv_sec << ", " << timestamp.tv_usec << "]" ;
+          //}
 
           offset = 0;
-          copy_count = buf.bytesused % 1460;
-          remain = buf.bytesused / 1460;
+          copy_count = buf.bytesused / m_transfer_packet_length;
+          remain = buf.bytesused % m_transfer_packet_length;
 
           if(bufferof_packets.size() == 0) {
               for(unsigned int i = 0; i < copy_count+8; i++){
-                  bufferof_packets.push_back(new char[1518]);
+                  bufferof_packets.push_back(new char[1536]);
               }
               BOOST_LOG_TRIVIAL(info) << copy_count << " packet buffer allocated" << std::endl; 
           }
@@ -438,7 +452,8 @@ public:
           char *packet_source = (char *)v4l2_ubuffers[buf.index].start;
  
           packet_id = 0;
-#if 1
+          buffer_size = 1536;
+
           /*  Leader packet   */ 
           packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_LEADER,
                             frame_id, packet_id, sizeof (ArvGvspImageLeader), bufferof_packets[packet_id], &buffer_size);
@@ -459,36 +474,55 @@ public:
               leader->infos.x_padding = htonl (0);
               leader->infos.y_padding = htonl (0);
 
-              //packet_buffers.push_back(packet);
-              //frame_udp_send ((char *)packet, buffer_size); 
+              if(stream_count > 0){
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+              else if(stream_count < 0){
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
           }
 
+          buffer_size = 1536;
           while(copy_count > 0) {
               packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
-                             frame_id, packet_id, 1460, bufferof_packets[packet_id], &buffer_size);
+                             frame_id, packet_id, m_transfer_packet_length, bufferof_packets[packet_id], &buffer_size);
               packet_id++;
               if (packet != NULL){
-                  //memcpy (gvsp_packet_get_data (packet), data, size);
-                  memcpy (gvsp_packet_get_data (packet), (char *)(packet_source+offset), 1460);
+                  memcpy (gvsp_packet_get_data (packet), (char *)(packet_source+offset), m_transfer_packet_length);
 
-                  //packet_buffers.push_back(packet);
-                  //frame_udp_send ((char *)packet, buffer_size); 
+                  if(stream_count > 0){
+                      frame_udp_send ((char *)packet, buffer_size);
+                  }
+                  else if(stream_count < 0){
+                      frame_udp_send ((char *)packet, buffer_size);
+                  }
               }
+              else{
+                  std::cout << "payload packet is NULL " << std::endl;
+              }
+
               copy_count--;
-              offset += 1460;
+              offset += m_transfer_packet_length;
           }
           
+          buffer_size = 1536;
           if(remain != 0){
               packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_PAYLOAD,
                              frame_id, packet_id, remain, bufferof_packets[packet_id], &buffer_size);
               packet_id++;
               if (packet != NULL) {
                   memcpy (gvsp_packet_get_data (packet),  packet_source+(offset), remain);
-                  //packet_buffers.push_back(packet);
-                  //frame_udp_send ((char *)packet, buffer_size); 
+
+                  if(stream_count > 0){
+                      frame_udp_send ((char *)packet, buffer_size); 
+                  }
+                  else if(stream_count < 0){
+                      frame_udp_send ((char *)packet, buffer_size); 
+                  }
               }
           }
 
+          buffer_size = 1536;
           /*  Trailer packet   */ 
           packet = gvsp_packet_new (ARV_GVSP_CONTENT_TYPE_TRAILER,
                             frame_id, packet_id, sizeof (ArvGvspTrailer), bufferof_packets[packet_id], &buffer_size);
@@ -500,46 +534,56 @@ public:
               trailer->payload_type = htonl (ARV_BUFFER_PAYLOAD_TYPE_IMAGE);
               trailer->data0 = 0;
 
-              //packet_buffers.push_back(packet);
-              //frame_udp_send ((char *)packet, buffer_size); 
+              if(stream_count > 0){
+                  stream_count--;
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+              else if(stream_count < 0){
+                  frame_udp_send ((char *)packet, buffer_size); 
+              }
+
+              //std::cout << "Send TRAILER (stream_count: " << stream_count << ")" << std::endl;
+              if(stream_count == 0){
+                  video_stream_mode = 0;
+              }
           }
-#endif
-          if(frame_id % 10 == 0){
+
+          if(frame_id % 100 == 0){
               BOOST_LOG_TRIVIAL(info) << "packets of frame complete [" << buf.bytesused << "]";
           }
 
-          //frames.push(packet_buffers); 
           frame_id++;
 
           buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
           buf.memory = V4L2_MEMORY_MMAP;
           if (-1 == ioctl(m_video_fd, VIDIOC_QBUF, &buf)) {
             fprintf(stderr, "VIDIOC_QBUF failure\n");
-            //return 0;
           }
+
           //BOOST_LOG_TRIVIAL(info) << "Queue buffer" << buf.index << std::endl; 
         }
-
-        //loop--;
+        
     }
 
-    //if (v4l2_streamoff(m_video_fd) == -1) {
-    //  BOOST_LOG_TRIVIAL(error) << "Error Stream OFF ..." << std::endl; 
-    //}
+    if (v4l2_streamoff(m_video_fd) == -1) {
+      BOOST_LOG_TRIVIAL(error) << "Error Stream OFF ..." << std::endl; 
+    }
 
-     if(bufferof_packets.size() != 0) {
-         std::vector<char *>::iterator iter;
-         for(iter = bufferof_packets.begin(); iter != bufferof_packets.end(); iter++){
-             //char *ptr = *iter;
-             //delete[] ptr;
-             delete[] *iter;
-         }
-         BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
-     }
+    if(bufferof_packets.size() != 0) {
+      std::vector<char *>::iterator iter;
+      for(iter = bufferof_packets.begin(); iter != bufferof_packets.end(); iter++){
+          //char *ptr = *iter;
+          //delete[] ptr;
+          delete[] *iter;
+      }
+      bufferof_packets.clear();
+      BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
+    }
 
   }
 #endif
 
+#if 0
   void videoframe_polling()
   {
     //struct timeval tv = {.tv_sec = 3, .tv_usec = 0};
@@ -748,18 +792,17 @@ public:
      BOOST_LOG_TRIVIAL(error) << "m_fd Close ...";
      close(m_fd);
   }
+#endif
 
   int startDevice()
   {
     int ret = -1;
 
-#if 0
     BOOST_LOG_TRIVIAL(info) << "Stream ON ..." << std::endl; 
     if (v4l2_streamon(m_video_fd) == -1) {
       BOOST_LOG_TRIVIAL(error) << "Error Stream ON ..." << std::endl; 
       return ret;
     }
-#endif
 
     ret = 1;
     std::function<void()> func = std::bind(&UDPAsyncServer::videoframe_polling, this);
@@ -814,6 +857,7 @@ private:
   std::queue< std::vector<ArvGvspPacket *> > frames;
   std::vector<char *> bufferof_packets;
 
+  unsigned int m_transfer_packet_length;
   int m_fd;
 };
 
@@ -1195,7 +1239,7 @@ int main()
   command_server = new UDPAsyncCMDServer(command_service, ARV_GVCP_PORT);
   command_server->m_stream_server = server;
 
-  //server->initDevice("/dev/video0");
+  server->initDevice("/dev/video0");
 
   //std::signal(SIGINT, server.signal_handler);
   std::signal(SIGINT, signal_handler);

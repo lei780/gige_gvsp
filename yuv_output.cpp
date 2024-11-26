@@ -38,8 +38,8 @@ using namespace std;
 using namespace cv;
 
 /** Global variables */
-uint32_t g_image_width = 1920;
-uint32_t g_image_height = 1080;
+uint32_t g_image_width = 1280;
+uint32_t g_image_height = 720;
 
 uint32_t g_image_size;
 uint32_t g_image_count;
@@ -67,13 +67,12 @@ void set_resolution(uint32_t width, uint32_t height)
 
 void feeding_data(char *pyuv, uint32_t length)
 {
-    std::cout << __FUNCTION__ << ": Pushed yuv data, length= " << length << std::endl;
+    //std::cout << __FUNCTION__ << ": Pushed yuv data, length= " << length << std::endl;
 
     std::lock_guard<std::mutex> lk(recv_lock);
     /* packets are inserted to list's queue */
     recv_queue.push(pyuv);
     recv_queue_cond.notify_one();
-
 }
 
 void output_main_stop() 
@@ -99,9 +98,9 @@ int output_main()
         std::unique_lock<std::mutex> lk(recv_lock);
         bret = recv_queue_cond.wait_for( lk, std::chrono::milliseconds(100), []{ return !recv_queue.empty(); } );
         if(bret) {
-            std::cout << __FUNCTION__ << ": Received yuv data" << std::endl;
-            std::cout << __FUNCTION__ << ": width : " << g_image_width << std::endl;
-            std::cout << __FUNCTION__ << ": height : " << g_image_height << std::endl;
+            //std::cout << __FUNCTION__ << ": Received yuv data" << std::endl;
+            //std::cout << __FUNCTION__ << ": width : " << g_image_width << std::endl;
+            //std::cout << __FUNCTION__ << ": height : " << g_image_height << std::endl;
             pbuf = recv_queue.front();
             recv_queue.pop();
             lk.unlock();
@@ -113,10 +112,11 @@ int output_main()
             write(fd, pbuf, fsize);
             close(fd); 
 #endif
+
+#if 0
             picNV12 = cv::Mat(g_image_height*3/2, g_image_width, CV_8UC1, pbuf);
             cv::cvtColor(picNV12, picBGR, cv::COLOR_YUV2RGB_NV12);
             cv::cvtColor(picNV12, picGRAY, cv::COLOR_YUV2GRAY_NV12);
-
  
             std::string greyArrWindow = "Grey Array Image";
             //cv::namedWindow(greyArrWindow, cv::WINDOW_AUTOSIZE);
@@ -126,6 +126,20 @@ int output_main()
  
             //cv::imshow(greyArrWindow, picBGR);
             cv::imshow(greyArrWindow, picGRAY);
+#endif
+
+            cv::Size szSize(g_image_width, g_image_height);
+            cv::Mat mSrc(szSize, CV_8UC2, pbuf);
+
+            cv::Mat mSrc_BGR(szSize, CV_8UC3);
+            cv::cvtColor(mSrc, mSrc_BGR, COLOR_YUV2BGR_YUYV);
+
+            cv::namedWindow("Image BGR", cv::WINDOW_NORMAL);
+            cv::resizeWindow("Image BGR",1280, 720);
+
+            cv::imshow("Image BGR", mSrc_BGR);
+            cv::waitKey(1);
+
             delete[] pbuf;
         }
         cv::waitKey(1);

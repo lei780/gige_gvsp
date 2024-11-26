@@ -554,6 +554,8 @@ public:
       //else
       //    gvsp_packet = (ArvGvspPacket *)buffer_1;
 
+      waitForReceive();
+
       frame_id = arv_gvsp_packet_get_frame_id (gvsp_packet);
       packet_id = arv_gvsp_packet_get_packet_id (gvsp_packet);
 
@@ -582,7 +584,7 @@ public:
                   block_size = packet_size - ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD (extended_ids);
               }
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_LEADER (block_size=" << block_size << ") " << std::endl;
-              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_LEADER allocated buffer ";
+              //BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_LEADER allocated buffer ";
               pyuv = new char[1920*1080*2];
               payload_count = 0; 
               break;
@@ -591,7 +593,8 @@ public:
               block_size = packet_size - ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD (extended_ids);
               if(pyuv != nullptr){
                   //BOOST_LOG_TRIVIAL(info) << " ARV_GVSP_CONTENT_TYPE_PAYLOAD copyed " << payload_count;
-                  memcpy( pyuv+(payload_count*block_size), ((char *)gvsp_packet)+ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD(extended_ids), block_size);  
+                  //memcpy( pyuv+(payload_count*block_size), ((char *)gvsp_packet)+ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD(extended_ids), block_size);  
+                  memcpy( pyuv+(payload_count*block_size), ((char *)gvsp_packet)+8, block_size);  
                   payload_count++;
               }
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_PAYLOAD (block_size=" << block_size << ") " << std::endl;
@@ -606,7 +609,7 @@ public:
 
           case ARV_GVSP_CONTENT_TYPE_TRAILER:
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_TRAILER " << std::endl;
-              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_TRAILER  " << payload_count;
+              //BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_TRAILER  " << payload_count;
               last_packet_id = 0;
 
               feeding_data( pyuv, 1480*(payload_count));
@@ -625,7 +628,7 @@ public:
      }
      delete[] ptr;
 
-     waitForReceive();
+     //waitForReceive();
   }
 
   void signal_handler(int signal)
