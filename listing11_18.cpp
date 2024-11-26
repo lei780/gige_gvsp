@@ -21,9 +21,14 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 //#include <sched.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
 #include <linux/videodev2.h>
 
 #include "v4l2_driver.h"
@@ -550,17 +555,35 @@ public:
     size_t buffer_size;
     ArvGvspPacket *packet;
 
-    char frame_data[128*1024];
+    char frame_data[16*1024];
     int stream_count = 0;
 
-    flength = 128*1024;
-    //std::vector<ArvGvspPacket *> packet_buffers;
+    struct stat f_info;
+    char *f_map;
 
+    //std::vector<ArvGvspPacket *> packet_buffers;
     //tv.tv_sec = 0;
     //tv.tv_usec = 300000;
 
+    m_fd = -1;
+    //m_fd = open("./test_1.yuv", O_RDONLY, (mode_t)0600);
+    m_fd = open("./test_1_y.yuv", O_RDONLY, (mode_t)0600);
+    if(m_fd  < 0){
+      BOOST_LOG_TRIVIAL(error) << "Sample file Open error ...";
+      flength = 16*1024;
+    }
+
+    fstat(m_fd, &f_info);
+    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": sample size size= " << f_info.st_size ;
+
+    flength = f_info.st_size;
+    f_map = (char *)mmap(0, f_info.st_size, PROT_READ, MAP_SHARED, m_fd, 0);
+    if(f_map == NULL){
+      BOOST_LOG_TRIVIAL(error) << "Mmap error ...";
+      flength = 0;
+    }
+
     loop = 1;
-    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Enter.. " ;
 
     while(loop)
     {
@@ -591,7 +614,8 @@ public:
             BOOST_LOG_TRIVIAL(info) << copy_count << " packet buffer allocated" << std::endl; 
         }
 
-        char *packet_source = frame_data;
+        //char *packet_source = frame_data;
+        char *packet_source = f_map;
         packet_id = 0;
 
         buffer_size = 1536;
@@ -639,21 +663,19 @@ public:
                   //std::cout << "buffer_size: " << buffer_size << std::endl;
                   memcpy (gvsp_packet_get_data (packet), (char *)(packet_source+offset), 1480);
 
-                  //frame_udp_send ((char *)packet, buffer_size); 
                   if(stream_count > 0){
                       frame_udp_send ((char *)packet, buffer_size);
                   }
                   else if(stream_count < 0){
                       frame_udp_send ((char *)packet, buffer_size);
                   }
-
               }
               else{
                   std::cout << "payload packet is NULL " << std::endl;
               }
 
               copy_count--;
-              offset += 1460;
+              offset += 1480;
           }
           
           if(remain != 0) {
@@ -663,7 +685,6 @@ public:
               if (packet != NULL) {
                   memcpy (gvsp_packet_get_data (packet),  packet_source+(offset), remain);
                   
-                  //frame_udp_send ((char *)packet, buffer_size); 
                   if(stream_count > 0){
                       frame_udp_send ((char *)packet, buffer_size); 
                   }
@@ -720,6 +741,12 @@ public:
          bufferof_packets.clear();
          BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
      }
+
+     BOOST_LOG_TRIVIAL(error) << "f_map Unmmap ...";
+     munmap(f_map, f_info.st_size);
+
+     BOOST_LOG_TRIVIAL(error) << "m_fd Close ...";
+     close(m_fd);
   }
 
   int startDevice()
@@ -786,6 +813,8 @@ private:
 
   std::queue< std::vector<ArvGvspPacket *> > frames;
   std::vector<char *> bufferof_packets;
+
+  int m_fd;
 };
 
 

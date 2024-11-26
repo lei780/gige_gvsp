@@ -1,6 +1,7 @@
 Debug = 0
 
 #CXX=riscv64-eyenix-linux-gnu-g++
+CXX=clang++
 
 #BOOST_LDFLAG = -lboost_filesystem -lboost_thread -lboost_iostreams -lboost_chrono -lboost_system
 #BOOST_LDFLAG = -L/data/guest/guest3/boost_install/lib -lboost_thread -lboost_iostreams -lboost_chrono -lboost_system
@@ -8,10 +9,12 @@ Debug = 0
 BOOST_LDFLAG = -lboost_thread -lboost_iostreams -lboost_chrono -lboost_system -lboost_log -lboost_log_setup -lboost_coroutine
 
 #LDFLAGS = -lpthread -lvsomeip3 $(BOOST_LDFLAG) -lrt
-LDFLAGS = -lpthread $(BOOST_LDFLAG) -lrt
+LDFLAGS = -lpthread $(BOOST_LDFLAG) -lrt -lglog -lopencv_highgui -lopencv_objdetect -lopencv_imgproc -lopencv_core
+
 #CFLAGS = -Wall -O2 -std=c++14 -I/data/guest/guest3/boost_install/include
 #CFLAGS = -Wall -O2 -std=c++14 -I$(SDKTARGETSYSROOT)/include
-CFLAGS = -Wall -O0 -g -std=c++14 -DBOOST_LOG_DYN_LINK=1 -DBOOST_BIND_GLOBAL_PLACEHOLDERS
+#CFLAGS = -Wall -O0 -g -std=c++14 -DBOOST_LOG_DYN_LINK=1 -DBOOST_BIND_GLOBAL_PLACEHOLDERS
+CFLAGS = -Wall -O2 -std=c++14 -DBOOST_LOG_DYN_LINK=1 -DBOOST_BIND_GLOBAL_PLACEHOLDERS -I/usr/include/opencv4
 
 #CFLAGS = -Wall -g -Os -DDEBUG
 #INC_DIR = $(shell pkg-config --cflags sdl2)
@@ -45,7 +48,7 @@ $(TEST_0): listing11_15.o
 $(TEST_1): listing11_18.o v4l2_driver.o
 	$(CXX) -o $@ $^ $(INC_DIR) $(LDFLAGS)
 
-$(TEST_2): listing11_16.o
+$(TEST_2): listing11_16.o yuv_output.o
 	$(CXX) -o $@ $^ $(INC_DIR) $(LDFLAGS)
 
 .cpp.o: 

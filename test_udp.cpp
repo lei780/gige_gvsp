@@ -16,25 +16,17 @@ std::string ReadError;
 int main(int argc, char * argv[])
 {
     io_service io;
-
     ip::udp::socket socket(io, ip::udp::endpoint(ip::udp::v4(), 1620));
-
     size_t num = 0;
-
     while (true)
     {
         std::vector<unsigned char> vec(1500);
-
         ip::udp::endpoint from;
-
-        socket.async_receive_from(
-                        boost::asio::buffer( vec ),
-                        from,
-                        boost::bind(
-                                asyncReadHandler,
-                                boost::asio::placeholders::error,
-                                boost::asio::placeholders::bytes_transferred ) );
-
+        socket.async_receive_from( boost::asio::buffer( vec ), from,
+                                   boost::bind(
+                                       asyncReadHandler,
+                                       boost::asio::placeholders::error,
+                                       boost::asio::placeholders::bytes_transferred ) );
         bool timeout = false;
         ReceivedDataSize = 0;
         ReadError = "";

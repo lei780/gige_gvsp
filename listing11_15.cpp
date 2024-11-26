@@ -1,8 +1,10 @@
-#include <boost/asio.hpp>
+
+#include <iostream>
+
 #include <boost/asio/spawn.hpp>
+#include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/date_time.hpp>
-#include <iostream>
 
 void wait_and_print(boost::asio::yield_context yield,
                     boost::asio::io_service& service)

@@ -25,11 +25,12 @@
 #include "v4l2_driver.h"
 #include "gvcp_header.h"
 
+#include "yuv_output.h"
+
 namespace asio = boost::asio;
 namespace sys = boost::system;
 
 const size_t MAXBUF = 1536;
-
 
 #define ARV_GVSP_PACKET_EXTENDED_ID_MODE_MASK   0x80
 #define ARV_GVSP_PACKET_ID_MASK         0x00ffffff
@@ -42,15 +43,11 @@ const size_t MAXBUF = 1536;
 #define ARV_GVSP_PACKET_PROTOCOL_OVERHEAD(ext_ids)  ((ext_ids) ? \
                                                                  sizeof (ArvGvspPacket) +  sizeof (ArvGvspExtendedHeader) : \
                                                                  sizeof (ArvGvspPacket) +  sizeof (ArvGvspHeader))
-
 #define ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD(ext_ids)      ARV_GVSP_PACKET_PROTOCOL_OVERHEAD(ext_ids)
-
 #define ARV_GVSP_MULTIPART_PACKET_PROTOCOL_OVERHEAD(ext_ids)    ((ext_ids) ? \
-                                                                 20 + 8 + \
                                                                  sizeof (ArvGvspPacket) + \
                                                                  sizeof (ArvGvspExtendedHeader) + \
                                                                  sizeof (ArvGvspMultipart) : \
-                                                                 20 + 8 + \
                                                                  sizeof (ArvGvspPacket) + \
                                                                  sizeof (ArvGvspHeader) + \
                                                                  sizeof (ArvGvspMultipart))
@@ -358,40 +355,52 @@ public:
 #endif
 
   UDPAsyncClient(
-		boost::asio::io_service& io_service, 
-		const std::string& host, 
-		const std::string& port ) 
-         //: service(io_service), socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
-         : socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
+	boost::asio::io_service& io_service, 
+	const std::string& host, 
+	const std::string& port ) 
+     //: service(io_service), socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
+     : socket(io_service, asio::ip::udp::endpoint(asio::ip::udp::v4(), 0)) {
 
-        std::cout << "ipaddress: "<< host << ", port: " << port << std::endl;
-        //service = io_service;
+    std::cout << "ipaddress: "<< host << ", port: " << port << std::endl;
+    //service = io_service;
 
-		asio::ip::udp::resolver::query query(asio::ip::udp::v4(), host, port);
-		asio::ip::udp::resolver resolver(io_service);
-        auto iter = resolver.resolve(query);
-		//asio::ip::udp::resolver::iterator iter = resolver.resolve(query);
-        endpoint = iter->endpoint();
-        //asio::ip::udp::socket socket(service, asio::ip::udp::v4(), 55000);
-        //asio::ip::udp::socket socket(io_service, asio::ip::udp::v4());
+	asio::ip::udp::resolver::query query(asio::ip::udp::v4(), host, port);
+	asio::ip::udp::resolver resolver(io_service);
+    auto iter = resolver.resolve(query);
+	//asio::ip::udp::resolver::iterator iter = resolver.resolve(query);
+    endpoint = iter->endpoint();
+    //asio::ip::udp::socket socket(service, asio::ip::udp::v4(), 55000);
+    //asio::ip::udp::socket socket(io_service, asio::ip::udp::v4());
 
-        last_packet_id = 0;
+    last_packet_id = 0;
 
-        waitForReceive();
-        //waitForReceive_1();
+    waitForReceive();
+    //waitForReceive_1();
 
-        const char *msg = "Hello from client";
+    const char *msg = "Connections";
 
-        socket.async_send_to(
-          asio::buffer(msg, strlen(msg)),
-          endpoint,
-          boost::bind(&UDPAsyncClient::send_complete, this,
-                boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred) );
+    socket.async_send_to(
+      asio::buffer(msg, strlen(msg)),
+      endpoint,
+      boost::bind(&UDPAsyncClient::send_complete, this,
+            boost::asio::placeholders::error,
+            boost::asio::placeholders::bytes_transferred) );
+
+     pyuv = nullptr;
+     payload_count = 0;
   }
 
   ~UDPAsyncClient()
   {
+    const char *msg = "Disconnections";
+
+    socket.async_send_to(
+      asio::buffer(msg, strlen(msg)),
+      endpoint,
+      boost::bind(&UDPAsyncClient::send_complete, this,
+            boost::asio::placeholders::error,
+            boost::asio::placeholders::bytes_transferred) );
+
     socket.close();
   }
 
@@ -452,8 +461,7 @@ public:
     }
   }
 
-  void *
-  arv_gvsp_packet_get_data (const ArvGvspPacket *packet)
+  void * arv_gvsp_packet_get_data (const ArvGvspPacket *packet)
   {
     if (arv_gvsp_packet_has_extended_ids (packet)) {
         ArvGvspExtendedHeader *header = (ArvGvspExtendedHeader *) &packet->header;
@@ -526,23 +534,19 @@ public:
   void DataReceive (const sys::error_code& ec, size_t sz, int num, char *ptr)
   {
       ArvGvspPacket *gvsp_packet;
-
       ArvGvspContentType content_type;
       ArvBufferPayloadType payload_type;
-
       uint32_t packet_id;
       uint64_t frame_id; 
       bool extended_ids;
       size_t packet_size = sz;
-      uint32_t block_size;
+      uint32_t block_size = 0;
 
       if( ec == boost::asio::error::operation_aborted )
       {
           std::cout << __FUNCTION__ << ": Aborted "  << '\n';
           return;
       }
-
-      waitForReceive();
 
       gvsp_packet = (ArvGvspPacket *)ptr;
       //if(num == 0)
@@ -556,7 +560,7 @@ public:
       //BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "_" << num << ": received size = " << packet_size << '\n';
       //std::cout << __FUNCTION__ << ": packet id = " << packet_id <<" frame id = " << frame_id << '\n';
 
-      if(packet_id - last_packet_id != 1){
+      if((packet_id != 0) && (packet_id - last_packet_id != 1)){
           std::cout << __FUNCTION__ << ": current packet id = " << packet_id <<" frame id = " << frame_id << '\n';
           BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "_" << num << ": last packet id = " << last_packet_id << '\n';
       }
@@ -578,11 +582,18 @@ public:
                   block_size = packet_size - ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD (extended_ids);
               }
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_LEADER (block_size=" << block_size << ") " << std::endl;
-              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_LEADER" << '\n';
+              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_LEADER allocated buffer ";
+              pyuv = new char[1920*1080*2];
+              payload_count = 0; 
               break;
 
           case ARV_GVSP_CONTENT_TYPE_PAYLOAD:
               block_size = packet_size - ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD (extended_ids);
+              if(pyuv != nullptr){
+                  //BOOST_LOG_TRIVIAL(info) << " ARV_GVSP_CONTENT_TYPE_PAYLOAD copyed " << payload_count;
+                  memcpy( pyuv+(payload_count*block_size), ((char *)gvsp_packet)+ARV_GVSP_PAYLOAD_PACKET_PROTOCOL_OVERHEAD(extended_ids), block_size);  
+                  payload_count++;
+              }
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_PAYLOAD (block_size=" << block_size << ") " << std::endl;
               //return (allocated_size + block_size - 1) / block_size + (2 /* leader + trailer */);
               break;
@@ -595,8 +606,11 @@ public:
 
           case ARV_GVSP_CONTENT_TYPE_TRAILER:
               //std::cout << __FUNCTION__ << "ARV_GVSP_CONTENT_TYPE_TRAILER " << std::endl;
-              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_TRAILER" << '\n';
+              BOOST_LOG_TRIVIAL(info) << "ARV_GVSP_CONTENT_TYPE_TRAILER  " << payload_count;
               last_packet_id = 0;
+
+              feeding_data( pyuv, 1480*(payload_count));
+
               //return arv_gvsp_packet_get_packet_id (packet) + 1;
               break;
 
@@ -609,8 +623,9 @@ public:
           case ARV_GVSP_CONTENT_TYPE_MULTIZONE:
               break;
      }
-
      delete[] ptr;
+
+     waitForReceive();
   }
 
   void signal_handler(int signal)
@@ -624,16 +639,12 @@ private:
   asio::ip::udp::socket socket;
   asio::ip::udp::endpoint remote_peer;
   asio::ip::udp::endpoint endpoint;
-  //asio::io_service &service;
-  char buffer[MAXBUF];
-  char buffer_1[MAXBUF];
-
-  //boost::asio::io_service& service;
   boost::asio::ip::udp::endpoint endpoint_;
-
   volatile std::sig_atomic_t gSignalStatus;
-
   boost::atomic <uint32_t> last_packet_id;
+  char *pyuv ;
+  char buffer[1536] ;
+  uint32_t payload_count;
 };
 
 UDPAsyncClient *stream_client = nullptr;
@@ -665,6 +676,10 @@ int main(int argc, char *argv[])
 
   std::function<void()> func = std::bind(&stream_proc, &stream_service);
   std::thread my_thread(func);
+
+  //std::function<void()> func_1 = std::bind(&output_main);
+  //std::thread my_thread_1(func_1);
+  std::thread my_thread_1(output_main);
 
   asio::io_service service;
 
@@ -780,7 +795,10 @@ int main(int argc, char *argv[])
   //stream_client->signal_handler(9);
   delete stream_client;
 
+  output_main_stop() ;
+
   my_thread.join();
+  my_thread_1.join(); 
 
 }
 
