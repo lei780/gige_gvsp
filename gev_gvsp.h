@@ -2,7 +2,20 @@
 #ifndef GEV_GVSP_H
 #define GEV__GVSP_H
 
+#include <cstdio>
 #include <cstdint>
+
+
+#define PVC_CAMERA_MEMORY_SIZE 0x10000
+
+#define PVC_GVSP_PACKET_EXTENDED_ID_MODE_MASK   0x80
+#define PVC_GVSP_PACKET_ID_MASK                 0x00ffffff
+#define PVC_GVSP_PACKET_INFOS_CONTENT_TYPE_MASK 0x7f000000
+#define PVC_GVSP_PACKET_INFOS_CONTENT_TYPE_POS  24
+#define PVC_GVSP_PACKET_INFOS_N_PARTS_MASK      0x000000ff
+
+#define MAXBUF 1536
+
 
 /**
  * ArvGvspPacketType:
@@ -12,11 +25,10 @@
  */
 
 typedef enum {
-    ARV_GVSP_PACKET_TYPE_OK =       0x0000,
-    ARV_GVSP_PACKET_TYPE_RESEND =   0x0100,
-    ARV_GVSP_PACKET_TYPE_PACKET_UNAVAILABLE =   0x800c
-} ArvGvspPacketType;
-
+    PVC_GVSP_PACKET_TYPE_OK =       0x0000,
+    PVC_GVSP_PACKET_TYPE_RESEND =   0x0100,
+    PVC_GVSP_PACKET_TYPE_PACKET_UNAVAILABLE =   0x800c
+} PvcGvspPacketType;
 
 /**
  * ArvGvspContentType:
@@ -31,15 +43,46 @@ typedef enum {
  */
 
 typedef enum {
-    ARV_GVSP_CONTENT_TYPE_LEADER =      0x01,
-    ARV_GVSP_CONTENT_TYPE_TRAILER =     0x02,
-    ARV_GVSP_CONTENT_TYPE_PAYLOAD =     0x03,
-    ARV_GVSP_CONTENT_TYPE_ALL_IN =      0x04,
-    ARV_GVSP_CONTENT_TYPE_H264 =        0x05,
-    ARV_GVSP_CONTENT_TYPE_MULTIZONE =   0x06,
-    ARV_GVSP_CONTENT_TYPE_MULTIPART =   0x07,
-    ARV_GVSP_CONTENT_TYPE_GENDC =       0x08
-} ArvGvspContentType;
+    PVC_GVSP_CONTENT_TYPE_LEADER =      0x01,
+    PVC_GVSP_CONTENT_TYPE_TRAILER =     0x02,
+    PVC_GVSP_CONTENT_TYPE_PAYLOAD =     0x03,
+    PVC_GVSP_CONTENT_TYPE_ALL_IN =      0x04,
+    PVC_GVSP_CONTENT_TYPE_H264 =        0x05,
+    PVC_GVSP_CONTENT_TYPE_MULTIZONE =   0x06,
+    PVC_GVSP_CONTENT_TYPE_MULTIPART =   0x07,
+    PVC_GVSP_CONTENT_TYPE_GENDC =       0x08
+} PvcGvspContentType;
+
+
+typedef enum {
+    PVC_GVSP_CONTENT_TYPE_LEADER =      0x01,
+    PVC_GVSP_CONTENT_TYPE_TRAILER =     0x02,
+    PVC_GVSP_CONTENT_TYPE_PAYLOAD =     0x03,
+    PVC_GVSP_CONTENT_TYPE_ALL_IN =      0x04,
+    PVC_GVSP_CONTENT_TYPE_H264 =        0x05,
+    PVC_GVSP_CONTENT_TYPE_MULTIZONE =   0x06,
+    PVC_GVSP_CONTENT_TYPE_MULTIPART =   0x07,
+    PVC_GVSP_CONTENT_TYPE_GENDC =       0x08
+} PvcGvspContentType;
+
+
+typedef enum {
+    PVC_BUFFER_PAYLOAD_TYPE_UNKNOWN =           -1,
+    PVC_BUFFER_PAYLOAD_TYPE_NO_DATA =       0x0000,
+    PVC_BUFFER_PAYLOAD_TYPE_IMAGE =         0x0001,
+    PVC_BUFFER_PAYLOAD_TYPE_RAWDATA =       0x0002,
+    PVC_BUFFER_PAYLOAD_TYPE_FILE =          0x0003,
+    PVC_BUFFER_PAYLOAD_TYPE_CHUNK_DATA =    0x0004,
+    PVC_BUFFER_PAYLOAD_TYPE_EXTENDED_CHUNK_DATA = 0x0005, /* Deprecated */
+    PVC_BUFFER_PAYLOAD_TYPE_JPEG =          0x0006,
+    PVC_BUFFER_PAYLOAD_TYPE_JPEG2000 =      0x0007,
+    PVC_BUFFER_PAYLOAD_TYPE_H264 =          0x0008,
+    PVC_BUFFER_PAYLOAD_TYPE_MULTIZONE_IMAGE = 0x0009,
+    PVC_BUFFER_PAYLOAD_TYPE_MULTIPART =             0x000a,
+    PVC_BUFFER_PAYLOAD_TYPE_GENDC_CONTAINER =       0x000b,
+    PVC_BUFFER_PAYLOAD_TYPE_GENDC_COMPONENT_DATA =  0x000c
+} PvcBufferPayloadType;
+
 
 
 /*
@@ -55,7 +98,7 @@ typedef struct {
     uint16_t frame_id;
     uint32_t packet_infos;
     uint8_t data[];
-} __attribute__((packed)) ArvGvspHeader;
+} __attribute__((packed)) PvcGvspHeader;
 
 
 typedef struct {
@@ -64,7 +107,7 @@ typedef struct {
     uint64_t frame_id;
     uint32_t packet_id;
     uint8_t data[];
-} __attribute__((packed)) ArvGvspExtendedHeader;
+} __attribute__((packed)) PvcGvspExtendedHeader;
 
 /**
  * ArvGvspLeader:
@@ -77,7 +120,7 @@ typedef struct {
     uint16_t payload_type;
     uint32_t timestamp_high;
     uint32_t timestamp_low;
-} __attribute__((packed)) ArvGvspLeader;
+} __attribute__((packed)) PvcGvspLeader;
 
 
 typedef struct {
@@ -88,24 +131,16 @@ typedef struct {
     uint32_t y_offset;
     uint16_t x_padding;
     uint16_t y_padding;
-} ArvGvspImageInfos;
+} __attribute__((packed)) PvcGvspImageInfos;
 
-/**
- * ArvGvspImageLeader:
- * @flags: generic flags
- * @payload_type: ID of the payload type
- * @timestamp_high: most significant bits of frame timestamp
- * @timestamp_low: least significant bits of frame timestamp_low
- * @infos: image infos
- */
 
 typedef struct {
     uint16_t flags;
     uint16_t payload_type;
     uint32_t timestamp_high;
     uint32_t timestamp_low;
-    ArvGvspImageInfos infos;
-} ArvGvspImageLeader;
+    PvcGvspImageInfos infos;
+} __attribute__((packed))  PvcGvspImageLeader;
 
 
 /**

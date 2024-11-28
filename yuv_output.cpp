@@ -26,16 +26,23 @@
 #include <cstdint>
 #include <cstdlib>
 
+#define USE_OPENCV 0
+
+#if USE_OPENCV
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui.hpp>
-//#include <opencv2/objdetect.hpp>
-//#include <opencv2/videoio.hpp>
+#include <opencv2/objdetect.hpp>
+#include <opencv2/videoio.hpp>
 #include <opencv2/imgproc.hpp>
+#endif
 
 #include "yuv_output.h"
 
+
 using namespace std;
+#if USE_OPENCV
 using namespace cv;
+#endif
 
 /** Global variables */
 uint32_t g_image_width = 1280;
@@ -84,13 +91,16 @@ int output_main()
 {
     bool bret; 
     char *pbuf;
+
+#if USE_OPENCV
     cv::Mat picNV12;
     cv::Mat picBGR;
     cv::Mat picGRAY;
+#endif
 
-    //int g_count = 0; 
-    //char fname[32];
-    //unsigned int fsize = 1920*1080+(1920*1080/2); 
+    int g_count = 0; 
+    char fname[32];
+    unsigned int fsize = 1920*1080+(1920*1080/2); 
 
     g_yuv_loop = 1; 
     while(g_yuv_loop == 1) 
@@ -104,7 +114,8 @@ int output_main()
             pbuf = recv_queue.front();
             recv_queue.pop();
             lk.unlock();
-#if 0
+
+#if 1
             sprintf(fname, "yuv_sample_%d.yuv", g_count++); 
             int fd = open(fname, O_RDWR|O_CREAT, 0644);
 
@@ -113,7 +124,7 @@ int output_main()
             close(fd); 
 #endif
 
-#if 0
+#if USE_OPENCV
             picNV12 = cv::Mat(g_image_height*3/2, g_image_width, CV_8UC1, pbuf);
             cv::cvtColor(picNV12, picBGR, cv::COLOR_YUV2RGB_NV12);
             cv::cvtColor(picNV12, picGRAY, cv::COLOR_YUV2GRAY_NV12);
@@ -124,10 +135,13 @@ int output_main()
             cv::resizeWindow(greyArrWindow, 1280, 720);
             //cv::namedWindow(greyArrWindow);
  
-            //cv::imshow(greyArrWindow, picBGR);
-            cv::imshow(greyArrWindow, picGRAY);
+            cv::imshow(greyArrWindow, picBGR);
+            //cv::imshow(greyArrWindow, picGRAY);
+            cv::waitKey(1);
 #endif
 
+#if 0
+#if USE_OPENCV
             cv::Size szSize(g_image_width, g_image_height);
             cv::Mat mSrc(szSize, CV_8UC2, pbuf);
 
@@ -139,14 +153,18 @@ int output_main()
 
             cv::imshow("Image BGR", mSrc_BGR);
             cv::waitKey(1);
+#endif
+#endif
 
             delete[] pbuf;
         }
-        cv::waitKey(1);
     }
 
+#if USE_OPENCV
     std::cout << "Window Close.. " << std::endl;
     cv::destroyAllWindows();
+#endif
+
     return 0;
 }
 

@@ -5,6 +5,8 @@
 #include <vector>
 #include <list>
 #include <functional>
+#include <mutex>
+
 
 #include <csignal>
 #include <cstdio>
@@ -12,17 +14,12 @@
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/bind/bind.hpp>
-
 #include <boost/atomic.hpp>
-#include <boost/log/core.hpp>
-#include <boost/log/trivial.hpp>
 
-//#include <signal.h>
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
-//#include <sched.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -181,28 +178,25 @@ public:
       stopDevice();
 
       //std::cout << __FUNCTION__ << ": Exec.. " << std::endl;
-#if BOOST_LOG_DYN_LINK == 1
-      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Enter ..." << std::endl; 
-#endif
+      std::cout << __FUNCTION__ << ": Enter ..." << std::endl; 
 
     if(init_done){
       if (v4l2_munmap() == -1) {
-        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": Error Unmap ..." << std::endl; 
+        std::cout << __FUNCTION__ << ": Error Unmap ..." << std::endl; 
       }
 
       if (v4l2_close(m_video_fd) == -1) {
-        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": Error Close ..." << std::endl; 
+        std::cout << __FUNCTION__ << ": Error Close ..." << std::endl; 
       }
     }
 
     loop = 0;
     if(frame_proc.joinable()){
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Join Wait ..." ;
+        std::cout << __FUNCTION__ << ": Join Wait ..." ;
         frame_proc.join();
     }
 
     socket.cancel();
-    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Leave ..." ;
   }
 
   void waitForReceive() 
@@ -234,12 +228,14 @@ public:
       //BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." ;
       //std::cout << "Send to " << remote_peer << '\n';
 
-      socket.async_send_to(
-          asio::buffer(pdata, length),
-          remote_peer,
-          boost::bind(&UDPAsyncServer::send_complete, this,
-                boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred) );
+      //socket.async_send_to(
+      //    asio::buffer(pdata, length),
+      //    remote_peer,
+      //    boost::bind(&UDPAsyncServer::send_complete, this,
+      //          boost::asio::placeholders::error,
+      //          boost::asio::placeholders::bytes_transferred) );
+
+      socket.send_to(asio::buffer(pdata, length), remote_peer);  
   }
 
   void DataReceive (const sys::error_code& ec, size_t sz) 
@@ -325,21 +321,21 @@ public:
     m_video_fd = v4l2_open(dev_name);
     if (m_video_fd == -1) {
       //fprintf(stderr, "can't open %s\n", dev_name);
-      BOOST_LOG_TRIVIAL(error) << dev_name << ": Can't Open .." ;
+      std::cout << dev_name << ": Can't Open ..\n" ;
       return m_video_fd;
     }
 
     if (v4l2_querycap(m_video_fd, dev_name) == -1) {
-      BOOST_LOG_TRIVIAL(info) << ": Query ..." ;
+      std::cout << ": Query ...\n" ;
       return -1;
     }
 
     // most of devices support YUYV422 packed.
-    ///if (v4l2_sfmt(m_video_fd, V4L2_PIX_FMT_NV12) == -1)
     //if (v4l2_sfmt(m_video_fd, V4L2_PIX_FMT_MJPEG) == -1)
-    if (v4l2_sfmt(m_video_fd, V4L2_PIX_FMT_YUYV) == -1)
+    //if (v4l2_sfmt(m_video_fd, V4L2_PIX_FMT_YUYV) == -1)
+    if (v4l2_sfmt(m_video_fd, V4L2_PIX_FMT_NV12) == -1)
     {
-      BOOST_LOG_TRIVIAL(error) << "Error Set Format ..." << std::endl; 
+      std::cout << "Error Set Format ..." << std::endl; 
       return -1;
     }
 
@@ -348,15 +344,15 @@ public:
     //  return 1;
     //}
 
-    if (v4l2_sfps(m_video_fd, 30) == -1) { // no fatal error
+    if (v4l2_sfps(m_video_fd, 20) == -1) { // no fatal error
       //perror("v4l2_sfps");
-      BOOST_LOG_TRIVIAL(error) << "Error Set Frame rate ..." << std::endl; 
+      std::cout << "Error Set Frame rate ..." << std::endl; 
       return -1;
     }
 
     if (v4l2_mmap(m_video_fd) == -1) {
       //perror("v4l2_mmap");
-      BOOST_LOG_TRIVIAL(error) << "Error Set MMAP ..." << std::endl; 
+      std::cout << "Error Set MMAP ..." << std::endl; 
       return -1;
     }
 
@@ -391,7 +387,7 @@ public:
     tv.tv_usec = 300000;
 
     loop = 1;
-    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Enter.. " ;
+    std::cout << __FUNCTION__ << ": Enter.. " << std::endl;
 
     while(loop)
     {
@@ -446,7 +442,7 @@ public:
               for(unsigned int i = 0; i < copy_count+8; i++){
                   bufferof_packets.push_back(new char[1536]);
               }
-              BOOST_LOG_TRIVIAL(info) << copy_count << " packet buffer allocated" << std::endl; 
+              std::cout << copy_count << " packet buffer allocated" << std::endl; 
           }
 
           char *packet_source = (char *)v4l2_ubuffers[buf.index].start;
@@ -473,6 +469,7 @@ public:
               leader->infos.y_offset = htonl (0);
               leader->infos.x_padding = htonl (0);
               leader->infos.y_padding = htonl (0);
+
 
               if(stream_count > 0){
                   frame_udp_send ((char *)packet, buffer_size); 
@@ -548,8 +545,8 @@ public:
               }
           }
 
-          if(frame_id % 100 == 0){
-              BOOST_LOG_TRIVIAL(info) << "packets of frame complete [" << buf.bytesused << "]";
+          if(frame_id % 200 == 0){
+              std::cout << "packets of frame complete [" << buf.bytesused << "]";
           }
 
           frame_id++;
@@ -562,11 +559,10 @@ public:
 
           //BOOST_LOG_TRIVIAL(info) << "Queue buffer" << buf.index << std::endl; 
         }
-        
     }
 
     if (v4l2_streamoff(m_video_fd) == -1) {
-      BOOST_LOG_TRIVIAL(error) << "Error Stream OFF ..." << std::endl; 
+      std::cout << "Error Stream OFF ..." << std::endl; 
     }
 
     if(bufferof_packets.size() != 0) {
@@ -577,7 +573,7 @@ public:
           delete[] *iter;
       }
       bufferof_packets.clear();
-      BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
+      std::cout << "packet buffer freed" << std::endl; 
     }
 
   }
@@ -765,7 +761,7 @@ public:
           }
 #endif
           if(frame_id % 10 == 0){
-              BOOST_LOG_TRIVIAL(info) << "packets of frame complete [" << flength << "]";
+              std::cout << "packets of frame complete [" << flength << "]";
           }
 
           //frames.push(packet_buffers); 
@@ -783,13 +779,13 @@ public:
              delete[] *iter;
          }
          bufferof_packets.clear();
-         BOOST_LOG_TRIVIAL(info) << "packet buffer freed" << std::endl; 
+         std::cout << "packet buffer freed" << std::endl; 
      }
 
-     BOOST_LOG_TRIVIAL(error) << "f_map Unmmap ...";
+     std::cout << "f_map Unmmap ...";
      munmap(f_map, f_info.st_size);
 
-     BOOST_LOG_TRIVIAL(error) << "m_fd Close ...";
+     std::cout << "m_fd Close ...";
      close(m_fd);
   }
 #endif
@@ -798,9 +794,9 @@ public:
   {
     int ret = -1;
 
-    BOOST_LOG_TRIVIAL(info) << "Stream ON ..." << std::endl; 
+    std::cout << "Stream ON ..." << std::endl; 
     if (v4l2_streamon(m_video_fd) == -1) {
-      BOOST_LOG_TRIVIAL(error) << "Error Stream ON ..." << std::endl; 
+      std::cout << "Error Stream ON ..." << std::endl; 
       return ret;
     }
 
@@ -814,17 +810,17 @@ public:
   int stopDevice()
   {
     int ret = -1;
-#if 0
-    if (v4l2_streamoff(m_video_fd) == -1) {
-      BOOST_LOG_TRIVIAL(error) << "Error Stream OFF ..." << std::endl; 
-      return ret;
-    }
-#endif
+
+    //if (v4l2_streamoff(m_video_fd) == -1) {
+    //  BOOST_LOG_TRIVIAL(error) << "Error Stream OFF ..." << std::endl; 
+    //  return ret;
+    //}
+
     ret = 1;
 
     loop = 0;
     if(frame_proc.joinable()){
-        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Join Wait ..." ;
+        std::cout << __FUNCTION__ << ": Join Wait ..." ;
         frame_proc.join();
     }
 
@@ -853,6 +849,7 @@ private:
 
   std::atomic<int> loop ;
   std::thread frame_proc ;
+  std::mutex m_mode_lock;
 
   std::queue< std::vector<ArvGvspPacket *> > frames;
   std::vector<char *> bufferof_packets;
@@ -877,9 +874,7 @@ public:
   ~UDPAsyncCMDServer() 
   { 
       //std::cout << __FUNCTION__ << ": Exec.. " << std::endl;
-#if BOOST_LOG_DYN_LINK == 1
-      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." << std::endl; 
-#endif
+      std::cout << __FUNCTION__ << ": Exec..." << std::endl; 
       socket.cancel();
   }
 
@@ -1056,9 +1051,9 @@ public:
 
   void send_complete (const sys::error_code& ec, size_t sz) 
   {
-#if BOOST_LOG_DYN_LINK == 1
-      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." << std::endl; 
-#endif
+//#if BOOST_LOG_DYN_LINK == 1
+//      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." << std::endl; 
+//#endif
   }
 
   void DataReceive (const sys::error_code& ec, size_t sz, int num) 
@@ -1104,7 +1099,7 @@ public:
         bool success;
 
         case ARV_GVCP_COMMAND_DISCOVERY_CMD:
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<" "<< __LINE__<<"] "<<"GVCP_Discovery Command ";
+            std::cout <<"["<<__FUNCTION__<<" "<< __LINE__<<"] "<<"GVCP_Discovery Command " << std::endl;
 
             //ack_packet = arv_gvcp_packet_new_discovery_ack (packet_id, &ack_packet_size);
             //gev_camera_read_memory (0, ARV_GVBS_DISCOVERY_DATA_SIZE, &ack_packet->data);
@@ -1112,19 +1107,19 @@ public:
             break;
 
         case ARV_GVCP_COMMAND_READ_MEMORY_CMD:
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<<"GVCP_ReadMemory Command ";
+            std::cout <<"["<<__FUNCTION__<<"] "<<"GVCP_ReadMemory Command " << std::endl;
             break;
 
         case ARV_GVCP_COMMAND_WRITE_MEMORY_CMD:
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<<"GVCP_WriteMemory Command ";
+            std::cout <<"["<<__FUNCTION__<<"] "<<"GVCP_WriteMemory Command " << std::endl;
             break;
 
         case ARV_GVCP_COMMAND_READ_REGISTER_CMD:
 
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<<"GVCP_ReadRegister Command ";
+            std::cout <<"["<<__FUNCTION__<<"] "<<"GVCP_ReadRegister Command " << std::endl;
 
             arv_gvcp_packet_get_read_register_cmd_infos (gvcp_packet, &register_address);
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<< "Read register command 0x" << std::hex << register_address ;
+            std::cout <<"["<<__FUNCTION__<<"] "<< "Read register command 0x" << std::hex << register_address ;
 
             success = gev_camera_read_memory (register_address, sizeof (register_value), &be_value);
             //          register_address, register_value);
@@ -1138,11 +1133,11 @@ public:
             //uint32_t register_value;
 
             register_value = 0;
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<<"GVCP_WriteRegister Command ";
+            std::cout <<"["<<__FUNCTION__<<"] "<<"GVCP_WriteRegister Command " << std::endl;
             arv_gvcp_packet_get_write_register_cmd_infos (gvcp_packet, &register_address, &register_value);
 
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<< "Read register address = 0x" << std::hex << register_address ;
-            BOOST_LOG_TRIVIAL(info) <<"["<<__FUNCTION__<<"] "<< "Read register value = " << std::hex << register_value ;
+            std::cout <<"["<<__FUNCTION__<<"] "<< "Read register address = 0x" << std::hex << register_address << std::endl ;
+            std::cout <<"["<<__FUNCTION__<<"] "<< "Read register value = " << std::hex << register_value << std::endl ;
 
 #if 1
             if(register_value == 1){
@@ -1161,7 +1156,7 @@ public:
             break;
 
        default:
-            BOOST_LOG_TRIVIAL(error) <<"["<<__FUNCTION__<<"] "<<"Unknown command";
+            std::cout <<"["<<__FUNCTION__<<"] "<<"Unknown command" << std::endl;
 
       }
 
@@ -1234,7 +1229,8 @@ int main()
   asio::io_service service;
   asio::io_service command_service;
 
-  server = new UDPAsyncServer(service, 55000);
+  //server = new UDPAsyncServer(service, 55000);
+  server = new UDPAsyncServer(service, 8108);
 
   command_server = new UDPAsyncCMDServer(command_service, ARV_GVCP_PORT);
   command_server->m_stream_server = server;

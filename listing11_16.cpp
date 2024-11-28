@@ -12,8 +12,6 @@
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/atomic.hpp>
-#include <boost/log/core.hpp>
-#include <boost/log/trivial.hpp>
 
 #include <time.h>
 #include <unistd.h>
@@ -525,9 +523,7 @@ public:
 
   void send_complete (const sys::error_code& ec, size_t sz)
   {
-#if BOOST_LOG_DYN_LINK == 1
-      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." << std::endl;
-#endif
+      std::cout << __FUNCTION__ << ": Exec..." << std::endl;
   }
 
   //void DataReceive (const sys::error_code& ec, size_t sz, int num)
@@ -564,7 +560,7 @@ public:
 
       if((packet_id != 0) && (packet_id - last_packet_id != 1)){
           std::cout << __FUNCTION__ << ": current packet id = " << packet_id <<" frame id = " << frame_id << '\n';
-          BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << "_" << num << ": last packet id = " << last_packet_id << '\n';
+          std::cout << __FUNCTION__ << "_" << num << ": last packet id = " << last_packet_id << '\n';
       }
 
       last_packet_id = packet_id;
@@ -739,7 +735,6 @@ int main(int argc, char *argv[])
                 free(cmd_packet);
                 cmd_packet = nullptr;
             }
-
         }
         else if(std::strncmp(request, "readport", request_length) == 0) {
 
