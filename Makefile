@@ -50,10 +50,13 @@ $(CLIENT): shm_cli.o
 $(TEST_0): listing11_15.o
 	$(CXX) -o $@ $^ $(INC_DIR) $(LDFLAGS)
 
-$(TEST_1): listing11_18.o v4l2_driver.o
+#$(TEST_1): listing11_18.o v4l2_driver.o
+#	$(CXX) -o $@ $^ $(INC_DIR) $(LDFLAGS)
+
+$(TEST_1): gige_serv.o stream_gev.o control_gev.o v4l2_driver.o
 	$(CXX) -o $@ $^ $(INC_DIR) $(LDFLAGS)
 
-$(TEST_2): listing11_16.o yuv_output.o
+$(TEST_2): gige_client.o yuv_output.o
 	$(CXX) -o $@ $^ $(INC_DIR) $(LDFLAGS)
 
 .cpp.o: 

@@ -201,15 +201,6 @@ public:
 
   void waitForReceive() 
   {
-#if 0
-      socket.async_receive_from( 
-           asio::buffer(buffer, MAXBUF), 
-           remote_peer,
-           boost::bind(&UDPAsyncServer::DataReceive, this,
-                boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred) );
-#endif
-
       socket.async_receive_from( 
            asio::buffer(buffer, MAXBUF), 
            remote_peer,
@@ -218,9 +209,7 @@ public:
 
   void send_complete (const sys::error_code& ec, size_t sz) 
   {
-//#if BOOST_LOG_DYN_LINK == 1
-//      BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": Exec..." ;
-//#endif
+      std::cout << __FUNCTION__ << ": Exec..." ;
   }
 
   void frame_udp_send (char *pdata, unsigned int length) 

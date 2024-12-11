@@ -2,6 +2,8 @@
 #ifndef __GVCP_HEADER_H__
 #define __GVCP_HEADER_H__
 
+#include "stream_gev.h"
+
 /**
  * ARV_GVCP_PORT:
  *
@@ -126,7 +128,7 @@ typedef enum {
     ARV_GVCP_PACKET_TYPE_CMD =      0x42,
     ARV_GVCP_PACKET_TYPE_ERROR =        0x80,
     ARV_GVCP_PACKET_TYPE_UNKNOWN_ERROR =    0x8f
-} ArvGvcpPacketType;
+} PvcGvcpPacketType;
 
 
 /**
@@ -222,7 +224,6 @@ typedef enum {
 } ArvGvcpDiscoveryPacketFlags;
 
 
-
 /**
  * ArvGvcpCommand:
  * @ARV_GVCP_COMMAND_DISCOVERY_CMD: discovery command
@@ -258,7 +259,91 @@ typedef enum {
     ARV_GVCP_COMMAND_WRITE_MEMORY_CMD = 0x0086,
     ARV_GVCP_COMMAND_WRITE_MEMORY_ACK = 0x0087,
     ARV_GVCP_COMMAND_PENDING_ACK =      0x0089
-} ArvGvcpCommand;
+} PvcGvcpCommand;
+
+
+/**
+ * ArvGvcpHeader:
+ * @packet_type: a #ArvGvcpPacketType identifier
+ * @packet_flags: set of packet flags
+ * @command: a #ArvGvcpCommand identifier
+ * @size: data size
+ * @id: packet identifier
+ *
+ * GVCP packet header structure.
+ */
+
+typedef struct {
+    uint8_t packet_type;
+    uint8_t packet_flags;
+    uint16_t command;
+    uint16_t size;
+    uint16_t id;
+} __attribute__((packed)) PvcGvcpHeader;
+
+/**
+ * ArvGvcpPacket:
+ * @header: packet header
+ * @data: variable size byte array
+ *
+ * GVCP packet structure.
+ */
+
+typedef struct {
+    PvcGvcpHeader header;
+    unsigned char data[];
+} __attribute__((packed)) PvcGvcpPacket;
+
+
+class UDPAsyncCMDServer
+{
+public:
+  UDPAsyncCMDServer(boost::asio::io_service& service, unsigned short port)
+     : socket(service, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port))
+  {
+    cmd_count = 0;
+    waitForReceive();
+  }
+
+  virtual ~UDPAsyncCMDServer() ;
+
+  PvcGvcpPacketType gvcp_packet_get_packet_type (PvcGvcpPacket *packet);
+  PvcGvcpCommand gvcp_packet_get_command (PvcGvcpPacket *packet);
+
+  PvcGvcpPacket * gvcp_packet_new_discovery_ack (uint16_t packet_id, size_t *packet_size);
+
+  size_t gvcp_packet_get_read_register_ack_size (void);
+  void gvcp_packet_get_read_memory_cmd_infos (const PvcGvcpPacket *packet, uint32_t *address, uint32_t *size);
+  uint16_t gvcp_packet_get_packet_id (PvcGvcpPacket *packet);
+  void gvcp_packet_get_write_register_cmd_infos (const PvcGvcpPacket *packet, uint32_t *address, uint32_t *value);
+  void gvcp_packet_get_read_register_cmd_infos (const PvcGvcpPacket *packet, uint32_t *address);
+  uint32_t gvcp_packet_get_read_register_ack_value (const PvcGvcpPacket *packet);
+  bool gev_camera_read_memory (uint32_t address, uint32_t size, void *buffer);
+
+  PvcGvcpPacket * gvcp_packet_new_read_register_ack (uint32_t value, uint16_t packet_id, size_t *packet_size);
+  PvcGvcpPacket * gvcp_packet_new_read_register_cmd (uint32_t address, uint16_t packet_id, size_t *packet_size);
+  PvcGvcpPacket * gvcp_packet_new_read_memory_cmd (uint32_t address, uint32_t size, uint16_t packet_id, size_t *packet_size);
+  PvcGvcpPacket * gvcp_packet_new_discovery_cmd (bool allow_broadcat_discovery_ack, size_t *packet_size);
+  PvcGvcpPacket * gvcp_packet_new_write_register_cmd (uint32_t address, uint32_t value, uint16_t packet_id, size_t *packet_size);
+
+  void waitForReceive();
+
+  void send_complete (const boost::system::error_code& ec, size_t sz);
+  void DataReceive (const boost::system::error_code& ec, size_t sz, int num);
+  void DataReceive (const boost::system::error_code& ec, size_t sz);
+
+  UDPStreamServer *m_stream_server;
+
+private:
+  boost::asio::ip::udp::socket socket;
+  boost::asio::ip::udp::endpoint remote_peer;
+  char buffer[1536];
+  char g_camera_memory[1024];
+
+  //volatile std::sig_atomic_t gSignalStatus;
+  int cmd_count;
+};
+
 
 #endif /* __GVCP_HEADER_H__ */
 
